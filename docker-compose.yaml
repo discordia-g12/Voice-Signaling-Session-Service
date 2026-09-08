@@ -1,0 +1,29 @@
+services:
+  voice_signaling_svc:
+    build: .
+    container_name: discordia_voice_signaling
+    ports:
+      - "8082:8080"
+    environment:
+      - NODE_ENV=development
+      - PORT=8080
+      - REDIS_HOST=redis_voice
+      - REDIS_PORT=6379
+      # Aca van las variables de LiveKit Server SDK cuando lo tengamos que configurar
+      - LIVEKIT_API_KEY=tu_api_key
+      - LIVEKIT_API_SECRET=tu_api_secret
+      - LIVEKIT_URL=ws://ruta_a_livekit
+    depends_on:
+      redis_voice:
+        condition: service_healthy
+
+  redis_voice:
+    image: redis:7-alpine
+    container_name: discordia_voice_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
