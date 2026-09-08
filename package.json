@@ -1,0 +1,14 @@
+{
+  "name": "voice-signaling-session-service",
+  "version": "1.0.0",
+  "description": "Discordia - Voice Signaling Session Service",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "fastify": "^4.26.2",
+    "livekit-server-sdk": "^2.1.2",
+    "redis": "^4.6.13"
+  }
+}
