@@ -12,14 +12,23 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-function buildApp(): FastifyInstance {
+interface BuildAppOptions {
+  redisHost?: string;
+  redisPort?: string | number;
+}
+
+function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: true });
 
-  const redisHost = process.env.REDIS_HOST || '127.0.0.1';
-  const redisPort = process.env.REDIS_PORT || 6379;
+  const redisHost = options.redisHost || process.env.REDIS_HOST || '127.0.0.1';
+  const redisPort = options.redisPort || process.env.REDIS_PORT || 6379;
 
   const redisClient: RedisClientType = createClient({
     url: `redis://${redisHost}:${redisPort}`,
+    socket: {
+      connectTimeout: READYZ_TIMEOUT_MS,
+      reconnectStrategy: false,
+    },
   });
 
   redisClient.on('error', (err) => app.log.error('Redis Client Error', err));
