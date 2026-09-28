@@ -1,7 +1,14 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import { createClient, RedisClientType } from 'redis';
+import voiceRoutes from './modules/voice/voice.routes';
 
 const READYZ_TIMEOUT_MS = 2000;
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    redis: RedisClientType;
+  }
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
@@ -33,9 +40,13 @@ function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   redisClient.on('error', (err) => app.log.error('Redis Client Error', err));
 
+  app.decorate('redis', redisClient);
+
   app.get('/livez', async () => {
     return { status: 'alive' };
   });
+
+  app.register(voiceRoutes);
 
   app.get('/readyz', async (_request, reply) => {
     try {
@@ -46,6 +57,12 @@ function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       return { status: 'ready' };
     } catch (error) {
       reply.code(503).send({ status: 'not_ready', detail: (error as Error).message });
+    }
+  });
+
+  app.addHook('onReady', async () => {
+    if (!redisClient.isOpen) {
+      await redisClient.connect();
     }
   });
 
