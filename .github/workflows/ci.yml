@@ -7,60 +7,19 @@ on:
     branches: [main, develop]
 
 jobs:
-  test:
+  test-and-build:
     runs-on: ubuntu-latest
-
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 3s
-          --health-retries 5
-
-    env:
-      REDIS_HOST: localhost
-      REDIS_PORT: 6379
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
+      - name: Run Lint, Typecheck and Tests inside Docker
+        run: |
+          docker compose run --rm voice_signaling_svc sh -c "\
+            npm run lint && \
+            npm run typecheck && \
+            npm run test \
+          "
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint (ESLint, incl. security rules)
-        run: npm run lint
-
-      - name: Type check
-        run: npm run typecheck
-
-      - name: Dependency audit
-        continue-on-error: true
-        run: npm audit --audit-level=high
-
-      - name: Run tests with coverage
-        run: npm run test:coverage
-
-      - name: Upload coverage report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage/lcov.info
-
-  docker-build:
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build image (no push — no deploy target defined yet, see ADR-01)
+      - name: Build final image tag (no push)
         run: docker build -t voice-signaling-session-service:ci .

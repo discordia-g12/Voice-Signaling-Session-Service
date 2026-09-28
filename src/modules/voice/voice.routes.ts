@@ -23,6 +23,10 @@ export default async function voiceRoutes(app: FastifyInstance) {
       if (response.status === 403) return reply.code(403).send({ error: 'User does not have permission' });
       if (!response.ok) throw new Error(`Error en el servicio de roles: ${response.status}`);
 
+      if (!app.redis.isOpen) {
+        await app.redis.connect();
+      }
+
       const previousChannel = await app.redis.get(`user:${userId}:voice_channel`);
       if (previousChannel && previousChannel !== channelId) {
         await app.redis.sRem(`channel:${previousChannel}:users`, userId);
@@ -54,4 +58,32 @@ export default async function voiceRoutes(app: FastifyInstance) {
       return reply.code(500).send({ error: 'Internal Server Error' });
     }
   });
+
+
+  app.post('/api/v1/voice/rooms/leave', async (request, reply) => {
+    const userId = request.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return reply.code(400).send({ error: 'x-user-id header is required' });
+    }
+
+    try {
+      if (!app.redis.isOpen) {
+        await app.redis.connect();
+      }
+
+      const previousChannel = await app.redis.get(`user:${userId}:voice_channel`);
+      
+      if (previousChannel) {
+        await app.redis.sRem(`channel:${previousChannel}:users`, userId);
+        await app.redis.del(`user:${userId}:voice_channel`);
+      }
+
+      return reply.code(200).send({ message: 'Desconectado exitosamente' });
+    } catch (error) {
+      app.log.error(error);
+      return reply.code(500).send({ error: 'Internal Server Error' });
+    }
+  });
+
 }
