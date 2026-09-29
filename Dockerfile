@@ -1,20 +1,14 @@
-FROM node:20-alpine AS builder
-
+FROM node:20-alpine
 WORKDIR /app
 
-COPY package*.json ./
+COPY package*.json tsconfig.json ./
 RUN npm install
 
 COPY . .
 
-FROM node:20-alpine
-
-WORKDIR /app
-
-COPY --from=builder /app ./
+RUN npm run build
 
 USER node
-
 EXPOSE 8080
 
-CMD ["node", "src/server.js"]
+CMD ["node", "dist/server.js"]

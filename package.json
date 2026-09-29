@@ -2,13 +2,30 @@
   "name": "voice-signaling-session-service",
   "version": "1.0.0",
   "description": "Discordia - Voice Signaling Session Service",
-  "main": "src/server.js",
+  "main": "dist/server.js",
   "scripts": {
-    "start": "node src/server.js"
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsx watch src/server.ts",
+    "test": "tsx --test tests/*.test.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test:coverage": "c8 --check-coverage --lines 85 --functions 85 --branches 85 --statements 85 --reporter=text --reporter=lcov tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "fastify": "^4.26.2",
     "livekit-server-sdk": "^2.1.2",
     "redis": "^4.6.13"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.0",
+    "@types/node": "^22.5.4",
+    "c8": "^10.1.2",
+    "eslint": "^9.9.0",
+    "eslint-plugin-security": "^3.0.1",
+    "globals": "^15.9.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.5.0"
   }
 }

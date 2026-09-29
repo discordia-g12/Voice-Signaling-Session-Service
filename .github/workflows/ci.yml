@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Lint, Typecheck and Tests inside Docker
+        run: |
+          docker compose run --rm voice_signaling_svc sh -c "\
+            npm run lint && \
+            npm run typecheck && \
+            npm run test \
+          "
+
+      - name: Build final image tag (no push)
+        run: docker build -t voice-signaling-session-service:ci .
