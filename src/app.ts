@@ -1,12 +1,16 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import { createClient, RedisClientType } from 'redis';
 import voiceRoutes from './modules/voice/voice.routes';
+import webhookRoutes from './modules/voice/webhook.routes';
 
 const READYZ_TIMEOUT_MS = 2000;
 
 export interface LiveKitConfig {
   apiKey: string;
   apiSecret: string;
+  /** URL interna (red de Docker) para la API de servidor de LiveKit. */
+  url: string;
+  /** URL que se le devuelve al browser para conectarse a LiveKit. */
   publicUrl: string;
 }
 
@@ -36,13 +40,14 @@ interface BuildAppOptions {
 function loadLiveKitConfig(): LiveKitConfig {
   const apiKey = process.env.LIVEKIT_API_KEY;
   const apiSecret = process.env.LIVEKIT_API_SECRET;
+  const url = process.env.LIVEKIT_URL;
   const publicUrl = process.env.LIVEKIT_PUBLIC_URL;
 
-  if (!apiKey || !apiSecret || !publicUrl) {
-    throw new Error('LIVEKIT_API_KEY, LIVEKIT_API_SECRET and LIVEKIT_PUBLIC_URL must be set');
+  if (!apiKey || !apiSecret || !url || !publicUrl) {
+    throw new Error('LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_URL and LIVEKIT_PUBLIC_URL must be set');
   }
 
-  return { apiKey, apiSecret, publicUrl };
+  return { apiKey, apiSecret, url, publicUrl };
 }
 
 function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -70,6 +75,7 @@ function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   });
 
   app.register(voiceRoutes);
+  app.register(webhookRoutes);
 
   app.get('/readyz', async (_request, reply) => {
     try {

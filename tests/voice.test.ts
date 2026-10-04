@@ -5,6 +5,7 @@ import buildApp from '../src/app';
 const livekit = {
   apiKey: 'test-key',
   apiSecret: 'test-secret-at-least-32-chars-long',
+  url: 'http://livekit.test:7880',
   publicUrl: 'ws://livekit.test:7880',
 };
 
