@@ -1,7 +1,10 @@
 import Fastify, { FastifyInstance } from 'fastify';
+import fastifyWebsocket from '@fastify/websocket';
 import { createClient, RedisClientType } from 'redis';
 import voiceRoutes from './modules/voice/voice.routes';
 import webhookRoutes from './modules/voice/webhook.routes';
+import presenceRoutes from './modules/voice/presence.routes';
+import { VoicePresence } from './modules/voice/presence';
 
 const READYZ_TIMEOUT_MS = 2000;
 
@@ -18,6 +21,7 @@ declare module 'fastify' {
   interface FastifyInstance {
     redis: RedisClientType;
     livekit: LiveKitConfig;
+    voicePresence: VoicePresence;
   }
 }
 
@@ -69,13 +73,16 @@ function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.decorate('redis', redisClient);
   app.decorate('livekit', livekitConfig);
+  app.decorate('voicePresence', new VoicePresence(app));
 
   app.get('/livez', async () => {
     return { status: 'alive' };
   });
 
+  app.register(fastifyWebsocket);
   app.register(voiceRoutes);
   app.register(webhookRoutes);
+  app.register(presenceRoutes);
 
   app.get('/readyz', async (_request, reply) => {
     try {

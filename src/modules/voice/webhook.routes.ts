@@ -30,13 +30,13 @@ export default async function webhookRoutes(app: FastifyInstance) {
     }
   }
 
-  async function removeFromChannel(channelId: string, userId: string) {
-    await app.redis.sRem(`channel:${channelId}:users`, userId);
-    // Si ya se pasó a otro canal, su sesión actual no se toca
+  async function removeFromChannel(channelId: string, userId: string): Promise<boolean> {
+    const removed = await app.redis.sRem(`channel:${channelId}:users`, userId);
     const currentChannel = await app.redis.get(`user:${userId}:voice_channel`);
     if (currentChannel === channelId) {
       await app.redis.del(`user:${userId}:voice_channel`);
     }
+    return removed > 0;
   }
 
   app.post('/webhooks/livekit', async (request, reply) => {
@@ -60,7 +60,9 @@ export default async function webhookRoutes(app: FastifyInstance) {
         case 'participant_left':
         case 'participant_connection_aborted':
           if (channelId && userId && !(await isStillInRoom(channelId, userId))) {
-            await removeFromChannel(channelId, userId);
+            if (await removeFromChannel(channelId, userId)) {
+              await app.voicePresence.publish(channelId);
+            }
           }
           break;
 
@@ -69,6 +71,9 @@ export default async function webhookRoutes(app: FastifyInstance) {
             const users = await app.redis.sMembers(`channel:${channelId}:users`);
             for (const user of users) {
               await removeFromChannel(channelId, user);
+            }
+            if (users.length > 0) {
+              await app.voicePresence.publish(channelId);
             }
           }
           break;
