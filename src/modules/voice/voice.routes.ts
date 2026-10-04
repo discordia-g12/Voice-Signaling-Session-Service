@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { AccessToken } from 'livekit-server-sdk';
-import { checkCanConnect } from './permissions';
+import { checkCanConnect, PermissionServiceUnavailableError } from './permissions';
 
 interface JoinVoiceParams {
   channelId: string;
@@ -55,6 +55,9 @@ export default async function voiceRoutes(app: FastifyInstance) {
 
     } catch (error) {
       app.log.error(error);
+      if (error instanceof PermissionServiceUnavailableError) {
+        return reply.code(503).send({ error: 'Permission service unavailable' });
+      }
       return reply.code(500).send({ error: 'Internal Server Error' });
     }
   });
