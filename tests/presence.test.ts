@@ -10,10 +10,12 @@ const livekit = {
   publicUrl: 'ws://livekit.test:7880',
 };
 
+type ServerMessage = Record<string, unknown>;
+
 // Cola de mensajes recibidos por el socket, para esperarlos en orden
 function messageQueue(socket: WebSocket) {
-  const received: any[] = [];
-  const waiters: ((msg: any) => void)[] = [];
+  const received: ServerMessage[] = [];
+  const waiters: ((msg: ServerMessage) => void)[] = [];
   socket.on('message', (raw) => {
     const msg = JSON.parse(raw.toString());
     const waiter = waiters.shift();
@@ -22,8 +24,8 @@ function messageQueue(socket: WebSocket) {
   });
   return {
     next: () =>
-      new Promise<any>((resolve, reject) => {
-        if (received.length) return resolve(received.shift());
+      new Promise<ServerMessage>((resolve, reject) => {
+        if (received.length) return resolve(received.shift()!);
         const timer = setTimeout(() => reject(new Error('timeout esperando mensaje')), 2000);
         waiters.push((msg) => {
           clearTimeout(timer);
