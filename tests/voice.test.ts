@@ -2,10 +2,27 @@ import { test, mock } from 'node:test';
 import assert from 'node:assert';
 import buildApp from '../src/app';
 
+const livekit = {
+  apiKey: 'test-key',
+  apiSecret: 'test-secret-at-least-32-chars-long',
+  publicUrl: 'ws://livekit.test:7880',
+};
+
+test('buildApp falla si faltan las credenciales de LiveKit', () => {
+  const saved = process.env.LIVEKIT_API_SECRET;
+  delete process.env.LIVEKIT_API_SECRET;
+  try {
+    assert.throws(() => buildApp(), /LIVEKIT_API_SECRET/);
+  } finally {
+    if (saved !== undefined) process.env.LIVEKIT_API_SECRET = saved;
+  }
+});
+
 test('Voice Routes', async (t) => {
   const app = buildApp({
     redisHost: process.env.REDIS_HOST || 'localhost',
     redisPort: process.env.REDIS_PORT || 6379,
+    livekit,
   });
 
   await app.ready();
@@ -36,7 +53,7 @@ test('Voice Routes', async (t) => {
     const body = res.json();
     
     assert.ok(body.token !== undefined);
-    assert.ok(body.url !== undefined);
+    assert.strictEqual(body.url, livekit.publicUrl);
 
     mock.restoreAll();
   });

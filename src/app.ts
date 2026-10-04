@@ -4,9 +4,16 @@ import voiceRoutes from './modules/voice/voice.routes';
 
 const READYZ_TIMEOUT_MS = 2000;
 
+export interface LiveKitConfig {
+  apiKey: string;
+  apiSecret: string;
+  publicUrl: string;
+}
+
 declare module 'fastify' {
   interface FastifyInstance {
     redis: RedisClientType;
+    livekit: LiveKitConfig;
   }
 }
 
@@ -22,9 +29,24 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 interface BuildAppOptions {
   redisHost?: string;
   redisPort?: string | number;
+  livekit?: LiveKitConfig;
+}
+
+// Sin defaults: si faltan las credenciales, el servicio no arranca en vez de firmar tokens con un secret conocido
+function loadLiveKitConfig(): LiveKitConfig {
+  const apiKey = process.env.LIVEKIT_API_KEY;
+  const apiSecret = process.env.LIVEKIT_API_SECRET;
+  const publicUrl = process.env.LIVEKIT_PUBLIC_URL;
+
+  if (!apiKey || !apiSecret || !publicUrl) {
+    throw new Error('LIVEKIT_API_KEY, LIVEKIT_API_SECRET and LIVEKIT_PUBLIC_URL must be set');
+  }
+
+  return { apiKey, apiSecret, publicUrl };
 }
 
 function buildApp(options: BuildAppOptions = {}): FastifyInstance {
+  const livekitConfig = options.livekit || loadLiveKitConfig();
   const app = Fastify({ logger: true });
 
   const redisHost = options.redisHost || process.env.REDIS_HOST || '127.0.0.1';
@@ -41,6 +63,7 @@ function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   redisClient.on('error', (err) => app.log.error('Redis Client Error', err));
 
   app.decorate('redis', redisClient);
+  app.decorate('livekit', livekitConfig);
 
   app.get('/livez', async () => {
     return { status: 'alive' };

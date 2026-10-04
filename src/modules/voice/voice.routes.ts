@@ -35,10 +35,7 @@ export default async function voiceRoutes(app: FastifyInstance) {
       await app.redis.set(`user:${userId}:voice_channel`, channelId);
       await app.redis.sAdd(`channel:${channelId}:users`, userId);
 
-      const apiKey = process.env.LIVEKIT_API_KEY || 'devkey';
-      const apiSecret = process.env.LIVEKIT_API_SECRET || 'secret';
-      
-      const at = new AccessToken(apiKey, apiSecret, {
+      const at = new AccessToken(app.livekit.apiKey, app.livekit.apiSecret, {
         identity: userId,
         name: `User-${userId}`,
       });
@@ -46,11 +43,11 @@ export default async function voiceRoutes(app: FastifyInstance) {
       at.addGrant({ roomJoin: true, room: channelId, canPublish: true, canSubscribe: true });
       
       const token = await at.toJwt();
-      const livekitUrl = process.env.LIVEKIT_URL || 'ws://localhost:7880';
 
+      // URL pública: el browser se conecta directo a LiveKit (LIVEKIT_URL es la interna de Docker)
       return reply.code(200).send({ 
         token, 
-        url: livekitUrl
+        url: app.livekit.publicUrl
       });
 
     } catch (error) {
