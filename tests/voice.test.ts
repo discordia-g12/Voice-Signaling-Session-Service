@@ -59,6 +59,22 @@ test('Voice Routes', async (t) => {
     mock.restoreAll();
   });
 
+  await t.test('POST /join - 503 si Server-Roles no responde', async () => {
+    mock.method(global, 'fetch', async () => {
+      throw new TypeError('fetch failed');
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/voice/rooms/fake-channel/join',
+      headers: { 'x-user-id': 'user-123' },
+    });
+
+    assert.strictEqual(res.statusCode, 503);
+    assert.strictEqual(res.json().error, 'Permission service unavailable');
+    mock.restoreAll();
+  });
+
   await t.test('POST /leave - exitoso', async () => {
     const res = await app.inject({
       method: 'POST',

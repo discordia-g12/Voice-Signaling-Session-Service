@@ -84,16 +84,42 @@ function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.register(webhookRoutes);
   app.register(presenceRoutes);
 
-  app.get('/readyz', async (_request, reply) => {
-    try {
-      if (!redisClient.isOpen) {
-        await withTimeout(redisClient.connect(), READYZ_TIMEOUT_MS);
-      }
-      await withTimeout(redisClient.ping(), READYZ_TIMEOUT_MS);
-      return { status: 'ready' };
-    } catch (error) {
-      reply.code(503).send({ status: 'not_ready', detail: (error as Error).message });
+  // Dependencias críticas: sin Redis no hay sesiones de voz y sin LiveKit no hay audio
+  const checkRedis = async () => {
+    if (!redisClient.isOpen) {
+      await withTimeout(redisClient.connect(), READYZ_TIMEOUT_MS);
     }
+    await withTimeout(redisClient.ping(), READYZ_TIMEOUT_MS);
+  };
+
+  const checkLiveKit = async () => {
+    // LiveKit responde "OK" en la raíz de su API HTTP (misma URL interna que el SDK, en http)
+    const httpUrl = livekitConfig.url.replace(/^ws/, 'http');
+    const response = await fetch(httpUrl, { signal: AbortSignal.timeout(READYZ_TIMEOUT_MS) });
+    if (!response.ok) throw new Error(`respondió ${response.status}`);
+  };
+
+  app.get('/readyz', async (_request, reply) => {
+    const checks: [string, () => Promise<void>][] = [
+      ['redis', checkRedis],
+      ['livekit', checkLiveKit],
+    ];
+    const results = await Promise.all(
+      checks.map(async ([name, check]) => {
+        try {
+          await check();
+          return null;
+        } catch (error) {
+          return `${name}: ${(error as Error).message}`;
+        }
+      })
+    );
+    const failures = results.filter((failure): failure is string => failure !== null);
+
+    if (failures.length > 0) {
+      return reply.code(503).send({ status: 'not_ready', detail: failures.join('; ') });
+    }
+    return { status: 'ready' };
   });
 
   app.addHook('onReady', async () => {
