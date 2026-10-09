@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { AccessToken } from 'livekit-server-sdk';
+import { checkCanConnect, PermissionServiceUnavailableError } from './permissions';
 
 interface JoinVoiceParams {
   channelId: string;
@@ -16,12 +17,9 @@ export default async function voiceRoutes(app: FastifyInstance) {
     }
 
     try {
-      const coreServiceUrl = process.env.CORE_SERVICE_URL || 'http://server-roles-service:8080';
-      const response = await fetch(`${coreServiceUrl}/internal/channels/${channelId}/can-connect?user_id=${userId}`);
-      
-      if (response.status === 404) return reply.code(404).send({ error: 'Channel not found' });
-      if (response.status === 403) return reply.code(403).send({ error: 'User does not have permission' });
-      if (!response.ok) throw new Error(`Error en el servicio de roles: ${response.status}`);
+      const permission = await checkCanConnect(userId, channelId);
+      if (permission === 'not_found') return reply.code(404).send({ error: 'Channel not found' });
+      if (permission === 'forbidden') return reply.code(403).send({ error: 'User does not have permission' });
 
       if (!app.redis.isOpen) {
         await app.redis.connect();
@@ -35,10 +33,12 @@ export default async function voiceRoutes(app: FastifyInstance) {
       await app.redis.set(`user:${userId}:voice_channel`, channelId);
       await app.redis.sAdd(`channel:${channelId}:users`, userId);
 
-      const apiKey = process.env.LIVEKIT_API_KEY || 'devkey';
-      const apiSecret = process.env.LIVEKIT_API_SECRET || 'secret';
-      
-      const at = new AccessToken(apiKey, apiSecret, {
+      if (previousChannel && previousChannel !== channelId) {
+        await app.voicePresence.publish(previousChannel);
+      }
+      await app.voicePresence.publish(channelId);
+
+      const at = new AccessToken(app.livekit.apiKey, app.livekit.apiSecret, {
         identity: userId,
         name: `User-${userId}`,
       });
@@ -46,15 +46,18 @@ export default async function voiceRoutes(app: FastifyInstance) {
       at.addGrant({ roomJoin: true, room: channelId, canPublish: true, canSubscribe: true });
       
       const token = await at.toJwt();
-      const livekitUrl = process.env.LIVEKIT_URL || 'ws://localhost:7880';
 
+      // URL pública: el browser se conecta directo a LiveKit (LIVEKIT_URL es la interna de Docker)
       return reply.code(200).send({ 
         token, 
-        url: livekitUrl
+        url: app.livekit.publicUrl
       });
 
     } catch (error) {
       app.log.error(error);
+      if (error instanceof PermissionServiceUnavailableError) {
+        return reply.code(503).send({ error: 'Permission service unavailable' });
+      }
       return reply.code(500).send({ error: 'Internal Server Error' });
     }
   });
@@ -77,6 +80,7 @@ export default async function voiceRoutes(app: FastifyInstance) {
       if (previousChannel) {
         await app.redis.sRem(`channel:${previousChannel}:users`, userId);
         await app.redis.del(`user:${userId}:voice_channel`);
+        await app.voicePresence.publish(previousChannel);
       }
 
       return reply.code(200).send({ message: 'Desconectado exitosamente' });
