@@ -38,6 +38,8 @@ interface BuildAppOptions {
   redisHost?: string;
   redisPort?: string | number;
   livekit?: LiveKitConfig;
+  /** Cada cuánto se pinguea el WebSocket de presencia (/ws/voice). */
+  wsPingIntervalMs?: number;
 }
 
 // Sin defaults: si faltan las credenciales, el servicio no arranca en vez de firmar tokens con un secret conocido
@@ -82,7 +84,7 @@ function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.register(fastifyWebsocket);
   app.register(voiceRoutes);
   app.register(webhookRoutes);
-  app.register(presenceRoutes);
+  app.register(presenceRoutes, { pingIntervalMs: options.wsPingIntervalMs });
 
   // Dependencias críticas: sin Redis no hay sesiones de voz y sin LiveKit no hay audio
   const checkRedis = async () => {

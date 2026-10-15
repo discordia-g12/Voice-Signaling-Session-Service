@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { checkCanConnect } from './permissions';
+import { DEFAULT_PING_INTERVAL_MS, startHeartbeat } from './heartbeat';
 
 const MAX_CHANNELS_PER_SUBSCRIPTION = 100;
 
@@ -31,13 +32,20 @@ function parseSubscribe(raw: string): SubscribeMessage | null {
  * cada cambio. Solo se siguen los canales a los que el usuario tiene acceso.
  * Pasa por el Gateway (/ws/voice), que valida el token y agrega X-User-Id.
  */
-export default async function presenceRoutes(app: FastifyInstance) {
+export interface PresenceRoutesOptions {
+  /** Cada cuánto se pinguea el WebSocket (ver heartbeat.ts). */
+  pingIntervalMs?: number;
+}
+
+export default async function presenceRoutes(app: FastifyInstance, opts: PresenceRoutesOptions) {
   app.get('/ws/voice', { websocket: true }, (socket, request) => {
     const userId = request.headers['x-user-id'] as string | undefined;
     if (!userId) {
       socket.close(1008, 'x-user-id header is required');
       return;
     }
+
+    const stopHeartbeat = startHeartbeat(socket, opts.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS);
 
     // Si llegan dos subscribe seguidos, solo vale el último
     let lastSubscription = 0;
@@ -65,6 +73,9 @@ export default async function presenceRoutes(app: FastifyInstance) {
       await app.voicePresence.subscribe(socket, allowed);
     });
 
-    socket.on('close', () => app.voicePresence.unsubscribe(socket));
+    socket.on('close', () => {
+      stopHeartbeat();
+      app.voicePresence.unsubscribe(socket);
+    });
   });
 }
