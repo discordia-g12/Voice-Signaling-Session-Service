@@ -78,3 +78,17 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Solo en push a main, con la imagen ya en GHCR: el workflow del orquestador la despliega en el nodo realtime
+  # por SSM y falla si no queda healthy (en ese caso el nodo vuelve solo al tag anterior).
+  deploy:
+    needs: docker
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      id-token: write
+      contents: read
+    uses: discordia-g12/discordia-orchestrator/.github/workflows/deploy.yml@main
+    with:
+      service: voice-signaling-service
+      node: realtime
+      sha: ${{ github.sha }}
