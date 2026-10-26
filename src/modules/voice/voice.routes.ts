@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { AccessToken } from 'livekit-server-sdk';
-import { checkCanConnect, PermissionServiceUnavailableError } from './permissions';
+import { checkConnectAccess, PermissionServiceUnavailableError } from './permissions';
+import { keys, TOKEN_TTL } from './sessions';
 
 interface JoinVoiceParams {
   channelId: string;
@@ -17,7 +18,7 @@ export default async function voiceRoutes(app: FastifyInstance) {
     }
 
     try {
-      const permission = await checkCanConnect(userId, channelId);
+      const { permission, serverId } = await checkConnectAccess(userId, channelId);
       if (permission === 'not_found') return reply.code(404).send({ error: 'Channel not found' });
       if (permission === 'forbidden') return reply.code(403).send({ error: 'User does not have permission' });
 
@@ -25,22 +26,33 @@ export default async function voiceRoutes(app: FastifyInstance) {
         await app.redis.connect();
       }
 
-      const previousChannel = await app.redis.get(`user:${userId}:voice_channel`);
+      const previousChannel = await app.redis.get(keys.userChannel(userId));
       if (previousChannel && previousChannel !== channelId) {
-        await app.redis.sRem(`channel:${previousChannel}:users`, userId);
+        await app.redis.sRem(keys.channelUsers(previousChannel), userId);
       }
-      
-      await app.redis.set(`user:${userId}:voice_channel`, channelId);
-      await app.redis.sAdd(`channel:${channelId}:users`, userId);
+
+      await app.redis.set(keys.userChannel(userId), channelId);
+      await app.redis.sAdd(keys.channelUsers(channelId), userId);
+      if (serverId) {
+        // De qué servidor es la llamada: un ban saca al usuario solo de las llamadas de ese servidor
+        await app.redis.set(keys.userServer(userId), serverId);
+        await app.redis.set(keys.channelServer(channelId), serverId);
+        // Pasó can-connect: si estaba bloqueado (lo habían expulsado y volvió a entrar), ya no
+        await app.redis.del(keys.blocked(serverId, userId));
+      } else {
+        await app.redis.del(keys.userServer(userId));
+      }
 
       if (previousChannel && previousChannel !== channelId) {
         await app.voicePresence.publish(previousChannel);
       }
       await app.voicePresence.publish(channelId);
 
+      // TTL corto: el token solo sirve para entrar; LiveKit se lo renueva a quien ya está en la sala
       const at = new AccessToken(app.livekit.apiKey, app.livekit.apiSecret, {
         identity: userId,
         name: `User-${userId}`,
+        ttl: TOKEN_TTL,
       });
       
       at.addGrant({ roomJoin: true, room: channelId, canPublish: true, canSubscribe: true });
@@ -75,11 +87,11 @@ export default async function voiceRoutes(app: FastifyInstance) {
         await app.redis.connect();
       }
 
-      const previousChannel = await app.redis.get(`user:${userId}:voice_channel`);
-      
+      const previousChannel = await app.redis.get(keys.userChannel(userId));
+
       if (previousChannel) {
-        await app.redis.sRem(`channel:${previousChannel}:users`, userId);
-        await app.redis.del(`user:${userId}:voice_channel`);
+        await app.redis.sRem(keys.channelUsers(previousChannel), userId);
+        await app.redis.del([keys.userChannel(userId), keys.userServer(userId)]);
         await app.voicePresence.publish(previousChannel);
       }
 
