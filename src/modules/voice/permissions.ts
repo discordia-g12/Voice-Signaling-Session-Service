@@ -41,6 +41,30 @@ export async function checkCanConnect(
   channelId: string,
   options: RetryOptions = {}
 ): Promise<ConnectPermission> {
+  return (await checkConnectAccess(userId, channelId, options)).permission;
+}
+
+export interface ConnectAccess {
+  permission: ConnectPermission;
+  /** Servidor dueño del canal (solo si `permission` es 'allowed' y Server-Roles lo informó). */
+  serverId?: string;
+}
+
+async function readServerId(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { server_id?: unknown } | null;
+    return typeof body?.server_id === 'string' ? body.server_id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Igual que `checkCanConnect`, pero además devuelve el servidor del canal. */
+export async function checkConnectAccess(
+  userId: string,
+  channelId: string,
+  options: RetryOptions = {}
+): Promise<ConnectAccess> {
   const { timeoutMs, attempts, baseDelayMs } = { ...DEFAULT_RETRY, ...options };
   const coreServiceUrl = process.env.CORE_SERVICE_URL || 'http://server-roles-service:8080';
   const url = `${coreServiceUrl}/internal/channels/${encodeURIComponent(channelId)}/can-connect?user_id=${encodeURIComponent(userId)}`;
@@ -49,9 +73,9 @@ export async function checkCanConnect(
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-      if (response.status === 404) return 'not_found';
-      if (response.status === 403) return 'forbidden';
-      if (response.ok) return 'allowed';
+      if (response.status === 404) return { permission: 'not_found' };
+      if (response.status === 403) return { permission: 'forbidden' };
+      if (response.ok) return { permission: 'allowed', serverId: await readServerId(response) };
       if (response.status < 500) {
         throw new PermanentPermissionError(`Server-Roles respondió ${response.status}`);
       }

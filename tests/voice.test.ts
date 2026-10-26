@@ -59,6 +59,36 @@ test('Voice Routes', async (t) => {
     mock.restoreAll();
   });
 
+  await t.test('POST /join - guarda el servidor de la llamada, levanta el bloqueo y emite un token corto', async () => {
+    mock.method(global, 'fetch', async () => {
+      return { ok: true, status: 200, json: async () => ({ can_connect: true, server_id: 'srv-join' }) };
+    });
+    await app.redis.set('voice:blocked:srv-join:user-join', '1', { EX: 60 });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/voice/rooms/chan-join/join',
+      headers: { 'x-user-id': 'user-join' },
+    });
+
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(await app.redis.get('user:user-join:voice_server'), 'srv-join');
+    assert.strictEqual(await app.redis.get('channel:chan-join:server'), 'srv-join');
+    assert.strictEqual(await app.redis.exists('voice:blocked:srv-join:user-join'), 0);
+
+    const payload = JSON.parse(Buffer.from(res.json().token.split('.')[1], 'base64url').toString());
+    const secondsLeft = payload.exp - Math.floor(Date.now() / 1000);
+    assert.ok(secondsLeft > 0 && secondsLeft <= 600, 'el token dura como mucho 10 minutos');
+
+    await app.redis.del([
+      'user:user-join:voice_channel',
+      'user:user-join:voice_server',
+      'channel:chan-join:users',
+      'channel:chan-join:server',
+    ]);
+    mock.restoreAll();
+  });
+
   await t.test('POST /join - 503 si Server-Roles no responde', async () => {
     mock.method(global, 'fetch', async () => {
       throw new TypeError('fetch failed');

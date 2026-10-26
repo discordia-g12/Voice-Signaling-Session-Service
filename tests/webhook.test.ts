@@ -138,6 +138,60 @@ test('Webhooks de LiveKit', async (t) => {
     assert.strictEqual(await app.redis.get('user:wh-user-6:voice_channel'), null);
   });
 
+  const removedParticipants: [string, string][] = [];
+  mock.method(RoomServiceClient.prototype, 'removeParticipant', async (room: string, identity: string) => {
+    removedParticipants.push([room, identity]);
+  });
+
+  await t.test('participant_joined saca a un usuario bloqueado que entró con un token viejo', async () => {
+    removedParticipants.length = 0;
+    await seedSession('wh-user-8', 'wh-chan-8');
+    await app.redis.set('channel:wh-chan-8:server', 'wh-srv-8');
+    await app.redis.set('voice:blocked:wh-srv-8:wh-user-8', '1', { EX: 60 });
+
+    const res = await send({
+      event: 'participant_joined',
+      room: { name: 'wh-chan-8' },
+      participant: { identity: 'wh-user-8' },
+    });
+
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(removedParticipants, [['wh-chan-8', 'wh-user-8']]);
+    assert.deepStrictEqual(await app.redis.sMembers('channel:wh-chan-8:users'), []);
+    assert.strictEqual(await app.redis.get('user:wh-user-8:voice_channel'), null);
+    await app.redis.del(['channel:wh-chan-8:server', 'voice:blocked:wh-srv-8:wh-user-8']);
+  });
+
+  await t.test('participant_joined no toca a un usuario que no está bloqueado', async () => {
+    removedParticipants.length = 0;
+    await seedSession('wh-user-9', 'wh-chan-9');
+    await app.redis.set('channel:wh-chan-9:server', 'wh-srv-9');
+    await app.redis.del('voice:blocked:wh-srv-9:wh-user-9');
+
+    await send({
+      event: 'participant_joined',
+      room: { name: 'wh-chan-9' },
+      participant: { identity: 'wh-user-9' },
+    });
+
+    assert.deepStrictEqual(removedParticipants, []);
+    assert.strictEqual(await app.redis.get('user:wh-user-9:voice_channel'), 'wh-chan-9');
+    await app.redis.del(['channel:wh-chan-9:users', 'user:wh-user-9:voice_channel', 'channel:wh-chan-9:server']);
+  });
+
+  await t.test('participant_joined no hace nada si no se sabe de qué servidor es la sala', async () => {
+    removedParticipants.length = 0;
+    await app.redis.del('channel:wh-chan-10:server');
+
+    await send({
+      event: 'participant_joined',
+      room: { name: 'wh-chan-10' },
+      participant: { identity: 'wh-user-10' },
+    });
+
+    assert.deepStrictEqual(removedParticipants, []);
+  });
+
   await t.test('ignora otros eventos', async () => {
     const res = await send({ event: 'track_published', room: { name: 'wh-chan-7' } });
     assert.strictEqual(res.statusCode, 200);

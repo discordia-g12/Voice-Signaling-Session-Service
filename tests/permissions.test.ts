@@ -1,6 +1,6 @@
 import { test, mock, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { checkCanConnect, PermissionServiceUnavailableError } from '../src/modules/voice/permissions';
+import { checkCanConnect, checkConnectAccess, PermissionServiceUnavailableError } from '../src/modules/voice/permissions';
 
 // Reintentos rápidos para que los tests no esperen
 const fast = { timeoutMs: 50, attempts: 3, baseDelayMs: 1 };
@@ -73,6 +73,25 @@ test('no reintenta respuestas 4xx inesperadas', async () => {
   const fetchMock = mockServerRoles(400);
   await assert.rejects(checkCanConnect('auth0|u', 'chan', fast), /respondió 400/);
   assert.strictEqual(fetchMock.mock.callCount(), 1);
+});
+
+test('checkConnectAccess devuelve el servidor del canal', async () => {
+  mock.method(global, 'fetch', async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ can_connect: true, server_id: 'srv-1' }),
+  }));
+  assert.deepStrictEqual(await checkConnectAccess('auth0|u', 'chan', fast), { permission: 'allowed', serverId: 'srv-1' });
+});
+
+test('checkConnectAccess no falla si la respuesta no trae el servidor', async () => {
+  mockServerRoles(200); // sin body
+  assert.deepStrictEqual(await checkConnectAccess('auth0|u', 'chan', fast), { permission: 'allowed', serverId: undefined });
+});
+
+test('checkConnectAccess no informa servidor si no tiene permiso', async () => {
+  mockServerRoles(403);
+  assert.deepStrictEqual(await checkConnectAccess('auth0|u', 'chan', fast), { permission: 'forbidden' });
 });
 
 test('codifica el user_id en la URL', async () => {

@@ -1,6 +1,7 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import fastifyWebsocket from '@fastify/websocket';
 import { createClient, RedisClientType } from 'redis';
+import { RoomServiceClient } from 'livekit-server-sdk';
 import voiceRoutes from './modules/voice/voice.routes';
 import webhookRoutes from './modules/voice/webhook.routes';
 import presenceRoutes from './modules/voice/presence.routes';
@@ -21,6 +22,8 @@ declare module 'fastify' {
   interface FastifyInstance {
     redis: RedisClientType;
     livekit: LiveKitConfig;
+    /** API de servidor de LiveKit (listar y sacar participantes). */
+    roomService: RoomServiceClient;
     voicePresence: VoicePresence;
   }
 }
@@ -75,6 +78,7 @@ function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.decorate('redis', redisClient);
   app.decorate('livekit', livekitConfig);
+  app.decorate('roomService', new RoomServiceClient(livekitConfig.url, livekitConfig.apiKey, livekitConfig.apiSecret));
   app.decorate('voicePresence', new VoicePresence(app));
 
   app.get('/livez', async () => {

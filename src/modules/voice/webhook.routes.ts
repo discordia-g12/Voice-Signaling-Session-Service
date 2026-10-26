@@ -1,5 +1,7 @@
 import { FastifyInstance } from 'fastify';
-import { RoomServiceClient, WebhookReceiver } from 'livekit-server-sdk';
+import { WebhookReceiver } from 'livekit-server-sdk';
+import { clearVoiceSession, keys } from './sessions';
+import { removeParticipant } from './moderation';
 
 /**
  * Webhooks de LiveKit: mantienen la sesión de Redis alineada con lo que pasa en la sala, incluso
@@ -11,7 +13,6 @@ import { RoomServiceClient, WebhookReceiver } from 'livekit-server-sdk';
  */
 export default async function webhookRoutes(app: FastifyInstance) {
   const receiver = new WebhookReceiver(app.livekit.apiKey, app.livekit.apiSecret);
-  const roomService = new RoomServiceClient(app.livekit.url, app.livekit.apiKey, app.livekit.apiSecret);
 
   // La firma se calcula sobre el body crudo, así que no hay que parsearlo antes de validarla
   app.addContentTypeParser('application/webhook+json', { parseAs: 'string' }, (_request, body, done) => {
@@ -22,7 +23,7 @@ export default async function webhookRoutes(app: FastifyInstance) {
   // de la vieja: solo se borra la sesión si el usuario ya no está en la sala
   async function isStillInRoom(channelId: string, userId: string): Promise<boolean> {
     try {
-      const participants = await roomService.listParticipants(channelId);
+      const participants = await app.roomService.listParticipants(channelId);
       return participants.some((p) => p.identity === userId);
     } catch {
       // La sala ya no existe
@@ -30,13 +31,13 @@ export default async function webhookRoutes(app: FastifyInstance) {
     }
   }
 
-  async function removeFromChannel(channelId: string, userId: string): Promise<boolean> {
-    const removed = await app.redis.sRem(`channel:${channelId}:users`, userId);
-    const currentChannel = await app.redis.get(`user:${userId}:voice_channel`);
-    if (currentChannel === channelId) {
-      await app.redis.del(`user:${userId}:voice_channel`);
-    }
-    return removed > 0;
+  const removeFromChannel = (channelId: string, userId: string) => clearVoiceSession(app.redis, channelId, userId);
+
+  // Baneado, expulsado o fuera del servidor (ver moderation.ts): si entra con un token emitido antes, se lo saca
+  async function isBlocked(channelId: string, userId: string): Promise<boolean> {
+    const serverId = await app.redis.get(keys.channelServer(channelId));
+    if (!serverId) return false;
+    return (await app.redis.exists(keys.blocked(serverId, userId))) > 0;
   }
 
   app.post('/webhooks/livekit', async (request, reply) => {
@@ -57,6 +58,16 @@ export default async function webhookRoutes(app: FastifyInstance) {
       const userId = event.participant?.identity;
 
       switch (event.event) {
+        case 'participant_joined':
+          if (channelId && userId && (await isBlocked(channelId, userId))) {
+            request.log.warn({ channelId, userId }, 'Usuario bloqueado entró con un token viejo: se lo saca');
+            await removeParticipant(app, channelId, userId);
+            if (await removeFromChannel(channelId, userId)) {
+              await app.voicePresence.publish(channelId);
+            }
+          }
+          break;
+
         case 'participant_left':
         case 'participant_connection_aborted':
           if (channelId && userId && !(await isStillInRoom(channelId, userId))) {
@@ -68,7 +79,7 @@ export default async function webhookRoutes(app: FastifyInstance) {
 
         case 'room_finished':
           if (channelId) {
-            const users = await app.redis.sMembers(`channel:${channelId}:users`);
+            const users = await app.redis.sMembers(keys.channelUsers(channelId));
             for (const user of users) {
               await removeFromChannel(channelId, user);
             }
