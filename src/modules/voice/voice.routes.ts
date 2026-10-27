@@ -1,10 +1,19 @@
 import { FastifyInstance } from 'fastify';
-import { AccessToken } from 'livekit-server-sdk';
-import { checkConnectAccess, PermissionServiceUnavailableError } from './permissions';
+import { AccessToken, TrackSource } from 'livekit-server-sdk';
+import { checkConnectAccess, PermissionServiceUnavailableError, type PublishPermissions } from './permissions';
 import { keys, TOKEN_TTL } from './sessions';
 
 interface JoinVoiceParams {
   channelId: string;
+}
+
+/** Fuentes que el token deja publicar: LiveKit rechaza las demás aunque el cliente lo intente. */
+export function publishSources({ canSpeak, canVideo, canScreenShare }: PublishPermissions): TrackSource[] {
+  const sources: TrackSource[] = [];
+  if (canSpeak) sources.push(TrackSource.MICROPHONE);
+  if (canVideo) sources.push(TrackSource.CAMERA);
+  if (canScreenShare) sources.push(TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO);
+  return sources;
 }
 
 export default async function voiceRoutes(app: FastifyInstance) {
@@ -18,7 +27,7 @@ export default async function voiceRoutes(app: FastifyInstance) {
     }
 
     try {
-      const { permission, serverId } = await checkConnectAccess(userId, channelId);
+      const { permission, serverId, publish } = await checkConnectAccess(userId, channelId);
       if (permission === 'not_found') return reply.code(404).send({ error: 'Channel not found' });
       if (permission === 'forbidden') return reply.code(403).send({ error: 'User does not have permission' });
 
@@ -55,14 +64,26 @@ export default async function voiceRoutes(app: FastifyInstance) {
         ttl: TOKEN_TTL,
       });
       
-      at.addGrant({ roomJoin: true, room: channelId, canPublish: true, canSubscribe: true });
-      
+      // Solo puede publicar lo que le permiten sus roles (hablar, cámara, pantalla); escuchar, siempre.
+      // Si le cambian los permisos durante la llamada, aplican al volver a entrar
+      const permissions = publish ?? { canSpeak: true, canVideo: true, canScreenShare: true };
+      const sources = publishSources(permissions);
+      at.addGrant({
+        roomJoin: true,
+        room: channelId,
+        canPublish: sources.length > 0,
+        canPublishSources: sources,
+        canSubscribe: true,
+      });
+
       const token = await at.toJwt();
 
-      // URL pública: el browser se conecta directo a LiveKit (LIVEKIT_URL es la interna de Docker)
-      return reply.code(200).send({ 
-        token, 
-        url: app.livekit.publicUrl
+      // URL pública: el browser se conecta directo a LiveKit (LIVEKIT_URL es la interna de Docker).
+      // permissions: el cliente deshabilita el micrófono o la cámara si no puede usarlos
+      return reply.code(200).send({
+        token,
+        url: app.livekit.publicUrl,
+        permissions,
       });
 
     } catch (error) {

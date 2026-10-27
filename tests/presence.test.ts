@@ -144,4 +144,23 @@ test('Presencia de canales de voz por WebSocket', async (t) => {
 
     socket.terminate();
   });
+  await t.test('alcanza con ver el canal: sin permiso para conectarse igual ve quién está', async () => {
+    // can-connect lo rechaza siempre; /access (VIEW_CHANNELS) solo en pr-forbidden
+    mock.restoreAll();
+    const fetchMock = mock.method(global, 'fetch', async (url: string) => {
+      const denied = url.includes('/can-connect') || url.includes('pr-forbidden');
+      return { ok: !denied, status: denied ? 403 : 200 };
+    });
+    await app.redis.sAdd('channel:pr-chan-1:users', 'pr-someone');
+
+    const socket = await app.injectWS('/ws/voice', { headers: { 'x-user-id': 'pr-no-connect' } });
+    const messages = messageQueue(socket);
+    socket.send(JSON.stringify({ type: 'subscribe', channelIds: ['pr-chan-1', 'pr-forbidden'] }));
+
+    assert.deepStrictEqual(await messages.next(), { type: 'presence', channelId: 'pr-chan-1', userIds: ['pr-someone'] });
+    assert.ok(fetchMock.mock.calls.every((call) => String(call.arguments[0]).includes('/access?')));
+
+    socket.terminate();
+    await app.redis.sRem('channel:pr-chan-1:users', 'pr-someone');
+  });
 });

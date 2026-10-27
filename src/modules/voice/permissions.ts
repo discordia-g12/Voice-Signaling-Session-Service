@@ -44,38 +44,57 @@ export async function checkCanConnect(
   return (await checkConnectAccess(userId, channelId, options)).permission;
 }
 
+/** Qué puede publicar en la llamada (micrófono, cámara, pantalla). */
+export interface PublishPermissions {
+  canSpeak: boolean;
+  canVideo: boolean;
+  canScreenShare: boolean;
+}
+
+/** Sin los campos (Server-Roles anterior a los permisos de voz) se puede publicar todo, como antes. */
+const PUBLISH_ALL: PublishPermissions = { canSpeak: true, canVideo: true, canScreenShare: true };
+
 export interface ConnectAccess {
   permission: ConnectPermission;
   /** Servidor dueño del canal (solo si `permission` es 'allowed' y Server-Roles lo informó). */
   serverId?: string;
+  /** Qué puede publicar (solo si `permission` es 'allowed'). */
+  publish?: PublishPermissions;
 }
 
-async function readServerId(response: Response): Promise<string | undefined> {
+interface CanConnectBody {
+  server_id?: unknown;
+  can_speak?: unknown;
+  can_video?: unknown;
+  can_screen_share?: unknown;
+}
+
+async function readBody(response: Response): Promise<CanConnectBody> {
   try {
-    const body = (await response.json()) as { server_id?: unknown } | null;
-    return typeof body?.server_id === 'string' ? body.server_id : undefined;
+    return ((await response.json()) as CanConnectBody | null) ?? {};
   } catch {
-    return undefined;
+    return {};
   }
 }
 
-/** Igual que `checkCanConnect`, pero además devuelve el servidor del canal. */
-export async function checkConnectAccess(
-  userId: string,
-  channelId: string,
-  options: RetryOptions = {}
-): Promise<ConnectAccess> {
+const flag = (value: unknown, fallback: boolean) => (typeof value === 'boolean' ? value : fallback);
+
+/**
+ * GET a un endpoint /internal de Server-Roles con timeout y reintentos (ver checkCanConnect).
+ * Devuelve la respuesta si fue 2xx, o el permiso si fue 403 / 404.
+ */
+async function callServerRoles(path: string, options: RetryOptions): Promise<Response | 'forbidden' | 'not_found'> {
   const { timeoutMs, attempts, baseDelayMs } = { ...DEFAULT_RETRY, ...options };
   const coreServiceUrl = process.env.CORE_SERVICE_URL || 'http://server-roles-service:8080';
-  const url = `${coreServiceUrl}/internal/channels/${encodeURIComponent(channelId)}/can-connect?user_id=${encodeURIComponent(userId)}`;
+  const url = `${coreServiceUrl}${path}`;
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-      if (response.status === 404) return { permission: 'not_found' };
-      if (response.status === 403) return { permission: 'forbidden' };
-      if (response.ok) return { permission: 'allowed', serverId: await readServerId(response) };
+      if (response.status === 404) return 'not_found';
+      if (response.status === 403) return 'forbidden';
+      if (response.ok) return response;
       if (response.status < 500) {
         throw new PermanentPermissionError(`Server-Roles respondió ${response.status}`);
       }
@@ -92,4 +111,41 @@ export async function checkConnectAccess(
   }
 
   throw new PermissionServiceUnavailableError(lastError);
+}
+
+const channelPath = (channelId: string, endpoint: string, userId: string) =>
+  `/internal/channels/${encodeURIComponent(channelId)}/${endpoint}?user_id=${encodeURIComponent(userId)}`;
+
+/** Igual que `checkCanConnect`, pero además devuelve el servidor del canal y qué puede publicar. */
+export async function checkConnectAccess(
+  userId: string,
+  channelId: string,
+  options: RetryOptions = {}
+): Promise<ConnectAccess> {
+  const result = await callServerRoles(channelPath(channelId, 'can-connect', userId), options);
+  if (typeof result === 'string') return { permission: result };
+
+  const body = await readBody(result);
+  return {
+    permission: 'allowed',
+    serverId: typeof body.server_id === 'string' ? body.server_id : undefined,
+    publish: {
+      canSpeak: flag(body.can_speak, PUBLISH_ALL.canSpeak),
+      canVideo: flag(body.can_video, PUBLISH_ALL.canVideo),
+      canScreenShare: flag(body.can_screen_share, PUBLISH_ALL.canScreenShare),
+    },
+  };
+}
+
+/**
+ * Si el usuario puede VER el canal (VIEW_CHANNELS), aunque no pueda conectarse: alcanza para saber
+ * quién está en un canal de voz (presencia), como en Discord. Mismos reintentos que checkCanConnect.
+ */
+export async function checkCanView(
+  userId: string,
+  channelId: string,
+  options: RetryOptions = {}
+): Promise<ConnectPermission> {
+  const result = await callServerRoles(channelPath(channelId, 'access', userId), options);
+  return typeof result === 'string' ? result : 'allowed';
 }
