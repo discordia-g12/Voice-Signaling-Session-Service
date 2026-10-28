@@ -1,6 +1,8 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert';
 import buildApp from '../src/app';
+import { TrackSource } from 'livekit-server-sdk';
+import { publishSources } from '../src/modules/voice/voice.routes';
 
 const livekit = {
   apiKey: 'test-key',
@@ -89,6 +91,61 @@ test('Voice Routes', async (t) => {
     mock.restoreAll();
   });
 
+  await t.test('POST /join - el token solo deja publicar lo que permiten los roles', async () => {
+    mock.method(global, 'fetch', async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ server_id: 'srv-pub', can_speak: false, can_video: true, can_screen_share: false }),
+    }));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/voice/rooms/chan-pub/join',
+      headers: { 'x-user-id': 'user-pub' },
+    });
+
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(res.json().permissions, { canSpeak: false, canVideo: true, canScreenShare: false });
+    const payload = JSON.parse(Buffer.from(res.json().token.split('.')[1], 'base64url').toString());
+    assert.strictEqual(payload.video.canPublish, true);
+    assert.deepStrictEqual(payload.video.canPublishSources, ['camera']);
+    assert.strictEqual(payload.video.canSubscribe, true);
+
+    await app.redis.del([
+      'user:user-pub:voice_channel',
+      'user:user-pub:voice_server',
+      'channel:chan-pub:users',
+      'channel:chan-pub:server',
+    ]);
+    mock.restoreAll();
+  });
+
+  await t.test('POST /join - sin ningún permiso de publicar, solo escucha', async () => {
+    mock.method(global, 'fetch', async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ server_id: 'srv-pub', can_speak: false, can_video: false, can_screen_share: false }),
+    }));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/voice/rooms/chan-listen/join',
+      headers: { 'x-user-id': 'user-listen' },
+    });
+
+    const payload = JSON.parse(Buffer.from(res.json().token.split('.')[1], 'base64url').toString());
+    assert.ok(!payload.video.canPublish);
+    assert.strictEqual(payload.video.canSubscribe, true);
+
+    await app.redis.del([
+      'user:user-listen:voice_channel',
+      'user:user-listen:voice_server',
+      'channel:chan-listen:users',
+      'channel:chan-listen:server',
+    ]);
+    mock.restoreAll();
+  });
+
   await t.test('POST /join - 503 si Server-Roles no responde', async () => {
     mock.method(global, 'fetch', async () => {
       throw new TypeError('fetch failed');
@@ -115,4 +172,13 @@ test('Voice Routes', async (t) => {
     assert.strictEqual(res.statusCode, 200);
     assert.strictEqual(res.json().message, 'Desconectado exitosamente');
   });
+});
+
+test('publishSources: pantalla incluye su audio', () => {
+  assert.deepStrictEqual(publishSources({ canSpeak: true, canVideo: false, canScreenShare: true }), [
+    TrackSource.MICROPHONE,
+    TrackSource.SCREEN_SHARE,
+    TrackSource.SCREEN_SHARE_AUDIO,
+  ]);
+  assert.deepStrictEqual(publishSources({ canSpeak: false, canVideo: false, canScreenShare: false }), []);
 });

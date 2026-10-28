@@ -39,7 +39,7 @@ WebApp (useVoicePresence)                Gateway (Kong)              voice-signa
         |                                      |                               |
         |-- WS /ws/voice?token=... ----------->|-- valida token, X-User-Id --->|
         |-- {type:"subscribe", channelIds} --------------------------------->  |
-        |                                      |        can-connect por canal -> Server-Roles
+        |                                      |        access (VIEW_CHANNELS) por canal -> Server-Roles
         |<-- {type:"presence", channelId, userIds} (estado inicial, uno por canal permitido)
         |                                      |                               |
    (otro usuario hace join / leave, o llega un webhook de LiveKit)             |
@@ -63,3 +63,5 @@ En el front, `useVoicePresence(channelIds)` (Discordia-WebApp, `src/api/hooks/us
 * **Permisos al suscribirse:** si a un usuario le quitan el acceso a un canal con la app abierta, sigue viendo su presencia hasta que vuelva a suscribirse (cambiar de servidor o recargar).
 * **`CONNECT` en vez de `VIEW_CHANNELS`:** se reutiliza `can-connect`, así que se ven los canales a los que el usuario puede *conectarse*. En Discord alcanza con poder *ver* el canal. Hoy `VIEW_CHANNELS` no se evalúa en ningún lado de Server-Roles; cuando se implemente la sobrescritura de permisos por canal (Server-Roles #18) conviene agregar un `can-view` interno y usarlo acá. Los overrides que se carguen ya se respetan, porque `can-connect` los evalúa.
 * Tests: `tests/presence.test.ts` (usa `app.injectWS`, sin levantar un servidor real) y `src/api/hooks/__tests__/useVoicePresence.test.tsx` en la WebApp.
+
+**Actualización (27/10/2026):** la presencia ya no usa `can-connect` sino `GET /internal/channels/{id}/access`, que exige `VIEW_CHANNELS` (con los overrides del canal), el mismo chequeo que usa el chat para leer. Como en Discord, un usuario que puede ver un canal de voz ve quién está adentro aunque no tenga `CONNECT`; entrar a la llamada sigue pidiendo `can-connect`. Esto reemplaza el punto "`CONNECT` en vez de `VIEW_CHANNELS`" de las consecuencias.

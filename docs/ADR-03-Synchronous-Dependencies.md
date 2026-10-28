@@ -5,7 +5,7 @@ El enunciado pide que la comunicación *entre servicios* backend sea asíncrona 
 
 Voice-Signaling-Session-Service depende de forma sincrónica de dos componentes:
 
-* **Server-Roles-Core-Service** (`GET /internal/channels/{id}/can-connect?user_id=...`): decide si un usuario puede conectarse a un canal de voz. Lo usan el join (`POST /api/v1/voice/rooms/:channelId/join`) y la suscripción de presencia (`/ws/voice`, ver ADR-02).
+* **Server-Roles-Core-Service** (`GET /internal/channels/{id}/can-connect?user_id=...`): decide si un usuario puede conectarse a un canal de voz. Lo usa el join (`POST /api/v1/voice/rooms/:channelId/join`), que además recibe qué puede publicar el usuario (`can_speak`, `can_video`, `can_screen_share`) para el token de LiveKit. La suscripción de presencia (`/ws/voice`, ver ADR-02) usa `GET /internal/channels/{id}/access` (`VIEW_CHANNELS`), con los mismos timeouts y reintentos.
 * **LiveKit** (SFU, ver ADR 0007 del repo `.github`): recibe el audio. El servicio solo le habla por su API de servidor (consultar participantes en los webhooks), pero sin LiveKit no hay voz.
 
 Antes de este ADR la llamada a `can-connect` no tenía timeout (si Server-Roles se colgaba, el join quedaba esperando indefinidamente), un error de Server-Roles se devolvía como `500` genérico y `/readyz` solo verificaba Redis.

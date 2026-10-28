@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { checkCanConnect } from './permissions';
+import { checkCanView } from './permissions';
 import { DEFAULT_PING_INTERVAL_MS, startHeartbeat } from './heartbeat';
 
 const MAX_CHANNELS_PER_SUBSCRIPTION = 100;
@@ -29,7 +29,8 @@ function parseSubscribe(raw: string): SubscribeMessage | null {
 /**
  * WebSocket de presencia: el cliente manda `{ type: 'subscribe', channelIds }` con los canales de
  * voz que está mirando y recibe `{ type: 'presence', channelId, userIds }` con el estado inicial y
- * cada cambio. Solo se siguen los canales a los que el usuario tiene acceso.
+ * cada cambio. Solo se siguen los canales que el usuario puede ver (VIEW_CHANNELS): como en Discord, ve
+ * quién está aunque no pueda conectarse.
  * Pasa por el Gateway (/ws/voice), que valida el token y agrega X-User-Id.
  */
 export interface PresenceRoutesOptions {
@@ -61,7 +62,7 @@ export default async function presenceRoutes(app: FastifyInstance, opts: Presenc
       const uniqueIds = Array.from(new Set(message.channelIds));
       const permissions = await Promise.all(
         uniqueIds.map((channelId) =>
-          checkCanConnect(userId, channelId).catch((error) => {
+          checkCanView(userId, channelId).catch((error) => {
             request.log.error(error);
             return 'forbidden' as const;
           })

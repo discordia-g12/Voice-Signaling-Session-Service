@@ -19,6 +19,12 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      # Igual que Chat y Notification: se ve en el log pero no bloquea. Hoy reporta Fastify 4, que solo se
+      # corrige pasando a Fastify 5 (cambio mayor, en un PR aparte). Alcanza con el package-lock.json.
+      - name: Dependency audit
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
       - name: Run Lint, Typecheck and Tests inside Docker
         run: |
           docker compose run --rm voice_signaling_svc sh -c "\
