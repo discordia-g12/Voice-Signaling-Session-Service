@@ -13,6 +13,10 @@ services:
       - LIVEKIT_API_SECRET=secret
       - LIVEKIT_URL=ws://livekit:7880
       - LIVEKIT_PUBLIC_URL=ws://localhost:7880
+      # Permisos: Server-Roles-Core corriendo en el host (su docker compose publica el 8080)
+      - CORE_SERVICE_URL=${CORE_SERVICE_URL:-http://host.docker.internal:8080}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       redis_voice:
         condition: service_healthy
@@ -32,9 +36,17 @@ services:
       start_period: 2s
 
   livekit:
-    image: livekit/livekit-server:latest
+    image: livekit/livekit-server:v1.13.7
     container_name: discordia_voice_livekit
     command: --dev --bind 0.0.0.0
+    environment:
+      - |
+        LIVEKIT_CONFIG=webhook:
+          api_key: devkey
+          urls:
+            - http://host.docker.internal:8082/webhooks/livekit
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "7880:7880"
       - "7881:7881"
