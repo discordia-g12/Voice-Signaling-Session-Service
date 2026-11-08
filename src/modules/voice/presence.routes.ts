@@ -47,6 +47,8 @@ export default async function presenceRoutes(app: FastifyInstance, opts: Presenc
     }
 
     const stopHeartbeat = startHeartbeat(socket, opts.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS);
+    // De quién es el socket: si suspenden la cuenta, se le cierra (moderation.ts)
+    app.voicePresence.register(socket, userId);
 
     // Si llegan dos subscribe seguidos, solo vale el último
     let lastSubscription = 0;
@@ -76,7 +78,7 @@ export default async function presenceRoutes(app: FastifyInstance, opts: Presenc
 
     socket.on('close', () => {
       stopHeartbeat();
-      app.voicePresence.unsubscribe(socket);
+      app.voicePresence.forget(socket);
     });
   });
 }

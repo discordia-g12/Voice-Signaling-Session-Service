@@ -33,8 +33,10 @@ export default async function webhookRoutes(app: FastifyInstance) {
 
   const removeFromChannel = (channelId: string, userId: string) => clearVoiceSession(app.redis, channelId, userId);
 
-  // Baneado, expulsado o fuera del servidor (ver moderation.ts): si entra con un token emitido antes, se lo saca
+  // Baneado, expulsado o fuera del servidor, o cuenta suspendida por la plataforma (ver moderation.ts): si
+  // entra con un token emitido antes, se lo saca
   async function isBlocked(channelId: string, userId: string): Promise<boolean> {
+    if ((await app.redis.exists(keys.suspended(userId))) > 0) return true;
     const serverId = await app.redis.get(keys.channelServer(channelId));
     if (!serverId) return false;
     return (await app.redis.exists(keys.blocked(serverId, userId))) > 0;

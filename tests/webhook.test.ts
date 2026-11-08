@@ -162,6 +162,24 @@ test('Webhooks de LiveKit', async (t) => {
     await app.redis.del(['channel:wh-chan-8:server', 'voice:blocked:wh-srv-8:wh-user-8']);
   });
 
+  await t.test('participant_joined saca a una cuenta suspendida, en cualquier servidor', async () => {
+    removedParticipants.length = 0;
+    await seedSession('wh-user-11', 'wh-chan-11');
+    await app.redis.set('channel:wh-chan-11:server', 'wh-srv-11');
+    await app.redis.set('voice:suspended:wh-user-11', '1', { EX: 60 });
+
+    const res = await send({
+      event: 'participant_joined',
+      room: { name: 'wh-chan-11' },
+      participant: { identity: 'wh-user-11' },
+    });
+
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(removedParticipants, [['wh-chan-11', 'wh-user-11']]);
+    assert.strictEqual(await app.redis.get('user:wh-user-11:voice_channel'), null);
+    await app.redis.del(['channel:wh-chan-11:server', 'voice:suspended:wh-user-11']);
+  });
+
   await t.test('participant_joined no toca a un usuario que no está bloqueado', async () => {
     removedParticipants.length = 0;
     await seedSession('wh-user-9', 'wh-chan-9');

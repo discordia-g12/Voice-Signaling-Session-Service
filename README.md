@@ -101,6 +101,7 @@ los dos Redis, o cambiá el puerto de uno.
 | `CORE_SERVICE_URL` | `http://server-roles-service:8080` | Server-Roles-Core, para `can-connect` y `access` |
 | `RABBITMQ_URL` | — | Broker. Sin él no se consumen eventos (aviso en el log) |
 | `RABBITMQ_EXCHANGE` / `RABBITMQ_QUEUE` | `server.events` / `voice_signaling_events` | De dónde consume |
+| `RABBITMQ_USER_EXCHANGE` | `user.events` | Exchange de Auth-User, del que consume `user.suspended` y `user.reactivated` |
 
 ## API
 
@@ -123,6 +124,15 @@ transitorias ([ADR-03](docs/ADR-03-Synchronous-Dependencies.md)).
 Cola `voice_signaling_events`, enlazada a `member.banned`, `member.kicked` y `member.left` del exchange
 `server.events`. Saca al usuario de la llamada si es de ese servidor, y lo bloquea para que no vuelva a entrar
 con un token que ya tenía.
+
+La misma cola está enlazada a `user.suspended` y `user.reactivated` del exchange `user.events` (Auth-User):
+
+- `user.suspended`: saca de la llamada en la que esté, en cualquier servidor, a cada identidad de la cuenta
+  (`identities`), le cierra el WebSocket de presencia con `4010` y la marca como suspendida
+  (`voice:suspended:<id>`, 24 h). Si entra con un token de LiveKit
+  que ya tenía, el webhook `participant_joined` la vuelve a sacar: la señalización de LiveKit no pasa por el
+  validador de Kong, así que la lista de suspendidos del Gateway no la frena;
+- `user.reactivated`: borra esa marca, para que pueda volver a entrar.
 
 ## Tests, lint y seguridad
 

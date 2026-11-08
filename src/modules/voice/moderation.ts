@@ -4,10 +4,27 @@ import { BLOCK_TTL_SECONDS, clearVoiceSession, keys } from './sessions';
 /** Eventos de Server-Roles que sacan al usuario de las llamadas de ese servidor. */
 export const REMOVAL_EVENTS = ['member.banned', 'member.kicked', 'member.left'] as const;
 
+/** Eventos de Auth-User (exchange user.events): cuenta suspendida o reactivada por la plataforma. */
+export const ACCOUNT_EVENTS = ['user.suspended', 'user.reactivated'] as const;
+
 export interface MemberEvent {
   server_id?: string;
   user_id?: string;
+  /** user.suspended / user.reactivated: la identidad principal y sus alias federados. */
+  identities?: unknown;
   [key: string]: unknown;
+}
+
+/** user_id más las identidades del evento, sin repetir y solo strings no vacíos. */
+export function accountIdentities(event: MemberEvent): string[] {
+  const ids = new Set<string>();
+  if (typeof event?.user_id === 'string' && event.user_id) ids.add(event.user_id);
+  if (Array.isArray(event?.identities)) {
+    for (const id of event.identities) {
+      if (typeof id === 'string' && id) ids.add(id);
+    }
+  }
+  return [...ids];
 }
 
 /** LiveKit responde "not found" si el usuario ya no está en la sala (o la sala ya no existe). */
@@ -55,9 +72,58 @@ export async function removeFromServerVoice(app: FastifyInstance, serverId: stri
   return true;
 }
 
-/** Handler para el consumidor de RabbitMQ: ignora eventos sin servidor o sin usuario. */
+/**
+ * Cuenta suspendida por la plataforma (CA 2 de "Suspender usuario"): la saca de la llamada en la que esté,
+ * en cualquier servidor, y la marca como suspendida para que el webhook la saque si entra con un token de
+ * LiveKit que ya tenía. Lo hace para cada identidad de la cuenta.
+ *
+ * @returns cuántas de sus identidades estaban en una llamada
+ */
+export async function removeSuspendedAccount(app: FastifyInstance, userIds: string[]): Promise<number> {
+  if (!app.redis.isOpen) {
+    await app.redis.connect();
+  }
+
+  let removedFromCalls = 0;
+  for (const userId of userIds) {
+    // Primero la marca: si entra justo ahora con un token viejo, el webhook participant_joined lo saca
+    await app.redis.set(keys.suspended(userId), '1', { EX: BLOCK_TTL_SECONDS });
+    // También se le cierra el WebSocket de presencia: queda desconectado del todo
+    app.voicePresence.disconnectUser(userId);
+
+    const channelId = await app.redis.get(keys.userChannel(userId));
+    if (!channelId) continue;
+
+    await removeParticipant(app, channelId, userId);
+    if (await clearVoiceSession(app.redis, channelId, userId)) {
+      await app.voicePresence.publish(channelId);
+    }
+    removedFromCalls += 1;
+    app.log.info({ userId, channelId }, 'Cuenta suspendida: sacada de la llamada');
+  }
+  return removedFromCalls;
+}
+
+/** Cuenta reactivada: puede volver a entrar a las llamadas. */
+export async function clearSuspendedAccount(app: FastifyInstance, userIds: string[]): Promise<void> {
+  if (userIds.length === 0) return;
+  if (!app.redis.isOpen) {
+    await app.redis.connect();
+  }
+  await app.redis.del(userIds.map((userId) => keys.suspended(userId)));
+}
+
+/** Handler para el consumidor de RabbitMQ: ignora eventos desconocidos o sin usuario. */
 export function handleMemberEvent(app: FastifyInstance) {
   return async (routingKey: string, event: MemberEvent): Promise<void> => {
+    if (routingKey === 'user.suspended') {
+      await removeSuspendedAccount(app, accountIdentities(event));
+      return;
+    }
+    if (routingKey === 'user.reactivated') {
+      await clearSuspendedAccount(app, accountIdentities(event));
+      return;
+    }
     if (!(REMOVAL_EVENTS as readonly string[]).includes(routingKey)) return;
     if (typeof event?.server_id !== 'string' || typeof event?.user_id !== 'string') return;
     await removeFromServerVoice(app, event.server_id, event.user_id);

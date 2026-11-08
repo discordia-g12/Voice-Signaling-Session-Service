@@ -7,13 +7,15 @@ const start = async (): Promise<void> => {
   const port = Number(process.env.PORT) || 8080;
   const host = '0.0.0.0';
 
-  // Eventos de Server-Roles (bans, expulsiones, salidas) para sacar al usuario de la llamada.
+  // Eventos de Server-Roles (bans, expulsiones, salidas) y de Auth-User (cuenta suspendida o reactivada)
+  // para sacar al usuario de la llamada.
   // No bloquea: si RabbitMQ (nodo infra) no está, Voice arranca igual y el consumidor reintenta solo.
   const rabbitmqUrl = process.env.RABBITMQ_URL;
   if (rabbitmqUrl) {
     const consumer = new VoiceEventConsumer(handleMemberEvent(app), {
       url: rabbitmqUrl,
       exchange: process.env.RABBITMQ_EXCHANGE,
+      userExchange: process.env.RABBITMQ_USER_EXCHANGE,
       queue: process.env.RABBITMQ_QUEUE,
       logger: app.log,
     });

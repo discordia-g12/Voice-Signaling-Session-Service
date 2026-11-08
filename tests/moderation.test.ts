@@ -2,7 +2,7 @@ import { test, mock } from 'node:test';
 import assert from 'node:assert';
 import { RoomServiceClient } from 'livekit-server-sdk';
 import buildApp from '../src/app';
-import { handleMemberEvent, removeFromServerVoice } from '../src/modules/voice/moderation';
+import { handleMemberEvent, removeFromServerVoice, removeSuspendedAccount } from '../src/modules/voice/moderation';
 import { keys } from '../src/modules/voice/sessions';
 
 const livekit = {
@@ -111,5 +111,73 @@ test('Sacar de la llamada al baneado o expulsado', async (t) => {
     await handler('member.banned', { server_id: 'mod-hsrv' });
     assert.strictEqual(removed.length, 3);
     assert.strictEqual(await app.redis.get(keys.userChannel('mod-h9')), 'mod-hchan-9');
+  });
+
+  await t.test('cuenta suspendida: la saca de su llamada en cualquier servidor, con todas sus identidades', async () => {
+    const handler = handleMemberEvent(app);
+    await seedCall('mod-s1', 'mod-schan-1', 'mod-ssrv-1');
+    await seedCall('google-oauth2|mod-s1', 'mod-schan-2', 'mod-ssrv-2');
+
+    await handler('user.suspended', { user_id: 'mod-s1', identities: ['mod-s1', 'google-oauth2|mod-s1', 7, ''] });
+
+    assert.deepStrictEqual(removed, [
+      ['mod-schan-1', 'mod-s1'],
+      ['mod-schan-2', 'google-oauth2|mod-s1'],
+    ]);
+    assert.strictEqual(await app.redis.get(keys.userChannel('mod-s1')), null);
+    assert.deepStrictEqual(await app.redis.sMembers(keys.channelUsers('mod-schan-2')), []);
+    assert.strictEqual(await app.redis.exists(keys.suspended('mod-s1')), 1);
+    assert.strictEqual(await app.redis.exists(keys.suspended('google-oauth2|mod-s1')), 1);
+    assert.ok((await app.redis.ttl(keys.suspended('mod-s1'))) > 0, 'la marca vence sola');
+  });
+
+  await t.test('cuenta suspendida: le cierra el WebSocket de presencia con 4010, y solo a ella', async () => {
+    const fakeSocket = () => {
+      const socket = {
+        OPEN: 1,
+        readyState: 1,
+        closedWith: null as null | [number, string],
+        close(code: number, reason: string) {
+          socket.closedWith = [code, reason];
+          socket.readyState = 3;
+        },
+      };
+      return socket;
+    };
+    const suspended = fakeSocket();
+    const other = fakeSocket();
+    app.voicePresence.register(suspended as never, 'mod-s5');
+    app.voicePresence.register(other as never, 'mod-s6');
+
+    await removeSuspendedAccount(app, ['mod-s5']);
+
+    assert.deepStrictEqual(suspended.closedWith, [4010, 'Account suspended']);
+    assert.strictEqual(other.closedWith, null);
+    assert.strictEqual(app.voicePresence.disconnectUser('mod-s5'), 0, 'ya no queda registrado');
+    app.voicePresence.forget(other as never);
+  });
+
+  await t.test('cuenta suspendida sin llamada: solo la marca', async () => {
+    assert.strictEqual(await removeSuspendedAccount(app, ['mod-s2']), 0);
+    assert.deepStrictEqual(removed, []);
+    assert.strictEqual(await app.redis.exists(keys.suspended('mod-s2')), 1);
+  });
+
+  await t.test('cuenta reactivada: borra la marca de todas sus identidades', async () => {
+    const handler = handleMemberEvent(app);
+    await app.redis.set(keys.suspended('mod-s3'), '1');
+    await app.redis.set(keys.suspended('google-oauth2|mod-s3'), '1');
+
+    await handler('user.reactivated', { user_id: 'mod-s3', identities: ['mod-s3', 'google-oauth2|mod-s3'] });
+
+    assert.strictEqual(await app.redis.exists(keys.suspended('mod-s3')), 0);
+    assert.strictEqual(await app.redis.exists(keys.suspended('google-oauth2|mod-s3')), 0);
+  });
+
+  await t.test('un evento de cuenta sin identidades no hace nada', async () => {
+    const handler = handleMemberEvent(app);
+    await handler('user.suspended', {});
+    await handler('user.reactivated', { identities: 'mod-s4' });
+    assert.deepStrictEqual(removed, []);
   });
 });
