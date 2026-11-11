@@ -180,4 +180,43 @@ test('Sacar de la llamada al baneado o expulsado', async (t) => {
     await handler('user.reactivated', { identities: 'mod-s4' });
     assert.deepStrictEqual(removed, []);
   });
+
+  await t.test('servidor suspendido: saca a todos de sus llamadas y lo marca', async () => {
+    const handler = handleMemberEvent(app);
+    await seedCall('mod-v1', 'mod-vchan-1', 'mod-vsrv-1');
+    await seedCall('mod-v2', 'mod-vchan-1', 'mod-vsrv-1');
+    await seedCall('mod-v3', 'mod-vchan-2', 'mod-vsrv-1');
+    await seedCall('mod-v4', 'mod-vchan-9', 'mod-vsrv-2'); // otro servidor
+
+    await handler('server.suspended', {
+      server_id: 'mod-vsrv-1',
+      voice_channel_ids: ['mod-vchan-1', 'mod-vchan-2', 7, ''],
+    });
+
+    assert.deepStrictEqual(
+      removed.map(([room, user]) => `${room}/${user}`).sort(),
+      ['mod-vchan-1/mod-v1', 'mod-vchan-1/mod-v2', 'mod-vchan-2/mod-v3'],
+    );
+    assert.deepStrictEqual(await app.redis.sMembers(keys.channelUsers('mod-vchan-1')), []);
+    assert.strictEqual(await app.redis.get(keys.userChannel('mod-v3')), null);
+    assert.strictEqual(await app.redis.get(keys.userChannel('mod-v4')), 'mod-vchan-9');
+    assert.strictEqual(await app.redis.exists(keys.serverSuspended('mod-vsrv-1')), 1);
+    assert.ok((await app.redis.ttl(keys.serverSuspended('mod-vsrv-1'))) > 0, 'la marca vence sola');
+  });
+
+  await t.test('servidor con la suspensión levantada: borra la marca', async () => {
+    const handler = handleMemberEvent(app);
+    await app.redis.set(keys.serverSuspended('mod-vsrv-3'), '1');
+
+    await handler('server.unsuspended', { server_id: 'mod-vsrv-3' });
+
+    assert.strictEqual(await app.redis.exists(keys.serverSuspended('mod-vsrv-3')), 0);
+  });
+
+  await t.test('un evento de servidor sin server_id no hace nada', async () => {
+    const handler = handleMemberEvent(app);
+    await handler('server.suspended', { voice_channel_ids: ['mod-vchan-1'] });
+    await handler('server.unsuspended', {});
+    assert.deepStrictEqual(removed, []);
+  });
 });

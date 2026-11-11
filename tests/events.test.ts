@@ -89,6 +89,8 @@ describe('VoiceEventConsumer', () => {
       'member.banned',
       'member.kicked',
       'member.left',
+      'server.suspended',
+      'server.unsuspended',
       'user.reactivated',
       'user.suspended',
     ]);

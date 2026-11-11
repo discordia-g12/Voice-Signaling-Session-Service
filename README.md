@@ -125,6 +125,14 @@ Cola `voice_signaling_events`, enlazada a `member.banned`, `member.kicked` y `me
 `server.events`. Saca al usuario de la llamada si es de ese servidor, y lo bloquea para que no vuelva a entrar
 con un token que ya tenía.
 
+También a `server.suspended` y `server.unsuspended` del mismo exchange (servidor suspendido por el staff, ADR-002 de
+Server-Roles):
+
+- `server.suspended`: saca a todos de las llamadas de sus canales de voz (`voice_channel_ids`) y marca el servidor
+  (`voice:server-suspended:<id>`, 24 h). Server-Roles ya niega `/join` (`can-connect` responde `403`); la marca hace
+  que el webhook saque a quien entre con un token de LiveKit emitido antes;
+- `server.unsuspended`: borra esa marca.
+
 La misma cola está enlazada a `user.suspended` y `user.reactivated` del exchange `user.events` (Auth-User):
 
 - `user.suspended`: saca de la llamada en la que esté, en cualquier servidor, a cada identidad de la cuenta
