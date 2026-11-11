@@ -1,5 +1,5 @@
 import type { Channel, ChannelModel, ConsumeMessage } from 'amqplib';
-import { ACCOUNT_EVENTS, MemberEvent, REMOVAL_EVENTS } from './moderation';
+import { ACCOUNT_EVENTS, MemberEvent, REMOVAL_EVENTS, SERVER_EVENTS } from './moderation';
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30_000;
@@ -116,7 +116,7 @@ export class VoiceEventConsumer {
       await channel.assertExchange(opts.userExchange, 'topic', { durable: true });
       await channel.assertExchange(opts.exchange, 'topic', { durable: true });
       const q = await channel.assertQueue(opts.queue, { durable: true });
-      for (const routingKey of REMOVAL_EVENTS) {
+      for (const routingKey of [...REMOVAL_EVENTS, ...SERVER_EVENTS]) {
         await channel.bindQueue(q.queue, opts.exchange, routingKey);
       }
       for (const routingKey of ACCOUNT_EVENTS) {

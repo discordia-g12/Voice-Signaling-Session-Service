@@ -7,6 +7,9 @@ export const REMOVAL_EVENTS = ['member.banned', 'member.kicked', 'member.left'] 
 /** Eventos de Auth-User (exchange user.events): cuenta suspendida o reactivada por la plataforma. */
 export const ACCOUNT_EVENTS = ['user.suspended', 'user.reactivated'] as const;
 
+/** Eventos de Server-Roles (exchange server.events): servidor suspendido o con la suspensión levantada. */
+export const SERVER_EVENTS = ['server.suspended', 'server.unsuspended'] as const;
+
 export interface MemberEvent {
   server_id?: string;
   user_id?: string;
@@ -113,9 +116,64 @@ export async function clearSuspendedAccount(app: FastifyInstance, userIds: strin
   await app.redis.del(userIds.map((userId) => keys.suspended(userId)));
 }
 
+/**
+ * Servidor suspendido por la plataforma (CA 1 de "Suspender servidor completo"): saca a todos de las llamadas de
+ * sus canales de voz y marca el servidor, para que el webhook saque a quien entre con un token de LiveKit anterior.
+ *
+ * @returns cuántos participantes sacó
+ */
+export async function removeSuspendedServer(
+  app: FastifyInstance,
+  serverId: string,
+  voiceChannelIds: string[],
+): Promise<number> {
+  if (!app.redis.isOpen) {
+    await app.redis.connect();
+  }
+
+  // Primero la marca: si alguien entra justo ahora, el webhook participant_joined lo saca
+  await app.redis.set(keys.serverSuspended(serverId), '1', { EX: BLOCK_TTL_SECONDS });
+
+  let removed = 0;
+  for (const channelId of voiceChannelIds) {
+    const userIds = await app.redis.sMembers(keys.channelUsers(channelId));
+    let changed = false;
+    for (const userId of userIds) {
+      await removeParticipant(app, channelId, userId);
+      if (await clearVoiceSession(app.redis, channelId, userId)) changed = true;
+      removed += 1;
+    }
+    if (changed) await app.voicePresence.publish(channelId);
+  }
+  app.log.info({ serverId, removed }, 'Servidor suspendido: llamadas cerradas');
+  return removed;
+}
+
+/** Se levantó la suspensión del servidor: sus llamadas vuelven a estar disponibles. */
+export async function clearSuspendedServer(app: FastifyInstance, serverId: string): Promise<void> {
+  if (!app.redis.isOpen) {
+    await app.redis.connect();
+  }
+  await app.redis.del(keys.serverSuspended(serverId));
+}
+
+/** Solo strings no vacíos: el evento viene de otro servicio. */
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v !== '') : [];
+}
+
 /** Handler para el consumidor de RabbitMQ: ignora eventos desconocidos o sin usuario. */
 export function handleMemberEvent(app: FastifyInstance) {
   return async (routingKey: string, event: MemberEvent): Promise<void> => {
+    if (routingKey === 'server.suspended' || routingKey === 'server.unsuspended') {
+      if (typeof event?.server_id !== 'string' || !event.server_id) return;
+      if (routingKey === 'server.suspended') {
+        await removeSuspendedServer(app, event.server_id, stringList(event.voice_channel_ids));
+      } else {
+        await clearSuspendedServer(app, event.server_id);
+      }
+      return;
+    }
     if (routingKey === 'user.suspended') {
       await removeSuspendedAccount(app, accountIdentities(event));
       return;

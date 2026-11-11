@@ -25,6 +25,12 @@ export const keys = {
    * user.reactivated.
    */
   suspended: (userId: string) => `voice:suspended:${userId}`,
+  /**
+   * El servidor fue suspendido por la plataforma (server.suspended de Server-Roles): nadie puede estar en sus
+   * llamadas. Server-Roles ya niega /join (can-connect); esto cubre los tokens de LiveKit emitidos antes. Se
+   * borra con server.unsuspended.
+   */
+  serverSuspended: (serverId: string) => `voice:server-suspended:${serverId}`,
 };
 
 /**
