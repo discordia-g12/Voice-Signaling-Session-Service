@@ -7,8 +7,8 @@ export const REMOVAL_EVENTS = ['member.banned', 'member.kicked', 'member.left'] 
 /** Eventos de Auth-User (exchange user.events): cuenta suspendida o reactivada por la plataforma. */
 export const ACCOUNT_EVENTS = ['user.suspended', 'user.reactivated'] as const;
 
-/** Eventos de Server-Roles (exchange server.events): servidor suspendido o con la suspensión levantada. */
-export const SERVER_EVENTS = ['server.suspended', 'server.unsuspended'] as const;
+/** Eventos de Server-Roles (exchange server.events): servidor suspendido, reactivado o eliminado. */
+export const SERVER_EVENTS = ['server.suspended', 'server.unsuspended', 'server.deleted'] as const;
 
 export interface MemberEvent {
   server_id?: string;
@@ -116,22 +116,17 @@ export async function clearSuspendedAccount(app: FastifyInstance, userIds: strin
   await app.redis.del(userIds.map((userId) => keys.suspended(userId)));
 }
 
-/**
- * Servidor suspendido por la plataforma (CA 1 de "Suspender servidor completo"): saca a todos de las llamadas de
- * sus canales de voz y marca el servidor, para que el webhook saque a quien entre con un token de LiveKit anterior.
- *
- * @returns cuántos participantes sacó
- */
-export async function removeSuspendedServer(
+async function closeServerCalls(
   app: FastifyInstance,
   serverId: string,
   voiceChannelIds: string[],
+  logMessage: string,
 ): Promise<number> {
   if (!app.redis.isOpen) {
     await app.redis.connect();
   }
 
-  // Primero la marca: si alguien entra justo ahora, el webhook participant_joined lo saca
+  // Primero la marca: si alguien entra justo ahora con un token anterior, el webhook participant_joined lo saca
   await app.redis.set(keys.serverSuspended(serverId), '1', { EX: BLOCK_TTL_SECONDS });
 
   let removed = 0;
@@ -145,8 +140,33 @@ export async function removeSuspendedServer(
     }
     if (changed) await app.voicePresence.publish(channelId);
   }
-  app.log.info({ serverId, removed }, 'Servidor suspendido: llamadas cerradas');
+  app.log.info({ serverId, removed }, logMessage);
   return removed;
+}
+
+/**
+ * Servidor suspendido por la plataforma (CA 1 de "Suspender servidor completo"): saca a todos de las llamadas de
+ * sus canales de voz y marca el servidor, para que el webhook saque a quien entre con un token de LiveKit anterior.
+ *
+ * @returns cuántos participantes sacó
+ */
+export async function removeSuspendedServer(
+  app: FastifyInstance,
+  serverId: string,
+  voiceChannelIds: string[],
+): Promise<number> {
+  return closeServerCalls(app, serverId, voiceChannelIds, 'Servidor suspendido: llamadas cerradas');
+}
+
+/**
+ * Servidor eliminado: saca a todos de las llamadas de sus canales de voz y bloquea tokens previos en el webhook.
+ */
+export async function removeDeletedServer(
+  app: FastifyInstance,
+  serverId: string,
+  voiceChannelIds: string[],
+): Promise<number> {
+  return closeServerCalls(app, serverId, voiceChannelIds, 'Servidor eliminado: llamadas cerradas');
 }
 
 /** Se levantó la suspensión del servidor: sus llamadas vuelven a estar disponibles. */
@@ -165,10 +185,17 @@ function stringList(value: unknown): string[] {
 /** Handler para el consumidor de RabbitMQ: ignora eventos desconocidos o sin usuario. */
 export function handleMemberEvent(app: FastifyInstance) {
   return async (routingKey: string, event: MemberEvent): Promise<void> => {
-    if (routingKey === 'server.suspended' || routingKey === 'server.unsuspended') {
+    if (routingKey === 'server.suspended' || routingKey === 'server.unsuspended' || routingKey === 'server.deleted') {
       if (typeof event?.server_id !== 'string' || !event.server_id) return;
       if (routingKey === 'server.suspended') {
         await removeSuspendedServer(app, event.server_id, stringList(event.voice_channel_ids));
+      } else if (routingKey === 'server.deleted') {
+        const voiceChannels = stringList(event.voice_channel_ids);
+        await removeDeletedServer(
+          app,
+          event.server_id,
+          voiceChannels.length > 0 ? voiceChannels : stringList(event.channel_ids),
+        );
       } else {
         await clearSuspendedServer(app, event.server_id);
       }
