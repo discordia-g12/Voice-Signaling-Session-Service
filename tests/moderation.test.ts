@@ -217,6 +217,27 @@ test('Sacar de la llamada al baneado o expulsado', async (t) => {
     const handler = handleMemberEvent(app);
     await handler('server.suspended', { voice_channel_ids: ['mod-vchan-1'] });
     await handler('server.unsuspended', {});
+    await handler('server.deleted', { voice_channel_ids: ['mod-vchan-1'] });
     assert.deepStrictEqual(removed, []);
+  });
+
+  await t.test('servidor eliminado: cierra las llamadas de sus canales de voz y limpia sesiones', async () => {
+    const handler = handleMemberEvent(app);
+    await seedCall('mod-del-1', 'mod-del-chan-1', 'mod-del-srv-1');
+    await seedCall('mod-del-2', 'mod-del-chan-9', 'mod-del-srv-2');
+
+    await handler('server.deleted', {
+      server_id: 'mod-del-srv-1',
+      voice_channel_ids: ['mod-del-chan-1'],
+    });
+
+    assert.deepStrictEqual(
+      removed.map(([room, user]) => `${room}/${user}`),
+      ['mod-del-chan-1/mod-del-1'],
+    );
+    assert.deepStrictEqual(await app.redis.sMembers(keys.channelUsers('mod-del-chan-1')), []);
+    assert.strictEqual(await app.redis.get(keys.userChannel('mod-del-1')), null);
+    assert.strictEqual(await app.redis.get(keys.userChannel('mod-del-2')), 'mod-del-chan-9');
+    assert.strictEqual(await app.redis.exists(keys.serverSuspended('mod-del-srv-1')), 1);
   });
 });
