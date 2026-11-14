@@ -31,8 +31,14 @@ export class CallError extends Error {
   }
 }
 
-/** Solo audio: el token deja publicar únicamente el micrófono. */
-export const CALL_PERMISSIONS: PublishPermissions = { canSpeak: true, canVideo: false, canScreenShare: false };
+/**
+ * Micrófono y cámara (historia #54): en una llamada privada no hay roles que lo limiten. Compartir pantalla
+ * todavía no existe en ningún lado.
+ */
+export const CALL_PERMISSIONS: PublishPermissions = { canSpeak: true, canVideo: true, canScreenShare: false };
+
+/** Lo que el token deja publicar: lo mismo que dice CALL_PERMISSIONS al cliente. */
+const CALL_PUBLISH_SOURCES = [TrackSource.MICROPHONE, TrackSource.CAMERA];
 
 export interface CallJoin {
   call: Call;
@@ -345,7 +351,7 @@ export class CallService {
       roomJoin: true,
       room: callRoomName(state.id),
       canPublish: true,
-      canPublishSources: [TrackSource.MICROPHONE],
+      canPublishSources: CALL_PUBLISH_SOURCES,
       canSubscribe: true,
     });
     return {

@@ -12,7 +12,7 @@ Lo que ya había y condiciona el diseño:
 
 **Decisión:**
 
-* **Audio por una sala de LiveKit de 2 personas.** Cada llamada es una sala `call-<uuid>` creada con `createRoom({ maxParticipants: 2, emptyTimeout: 60 })` antes de dar el token. El token (10 min, identidad = `X-User-Id` crudo, como en canales) solo deja publicar el micrófono. Quien llama entra al iniciar; quien recibe, al aceptar. El cliente reutiliza la misma integración con LiveKit que los canales.
+* **Audio y video por una sala de LiveKit de 2 personas.** Cada llamada es una sala `call-<uuid>` creada con `createRoom({ maxParticipants: 2, emptyTimeout: 60 })` antes de dar el token. El token (10 min, identidad = `X-User-Id` crudo, como en canales) deja publicar el micrófono y la cámara (historia #54; en una llamada privada no hay roles que lo limiten), no la pantalla. Quien llama entra al iniciar; quien recibe, al aceptar. El cliente reutiliza la misma integración con LiveKit que los canales.
 * **Voice es dueño del estado, en voice-redis.** Módulo nuevo `src/modules/calls/` (no dentro de `voice/`: otro dominio, otra fuente de autorización, otras claves):
   * `call:<id>` (JSON con ids canónicos, identidades crudas, estado y fechas), `call:user:<canónico>` (marca de "ocupado") y `call:identity:<crudo>` (canónico, para poder cortar con Chat caído).
   * Reservar el "ocupado" de los dos y crear la llamada es un único script Lua (`SET NX` de los dos; si el segundo falla, libera el primero): dos llamadas a la vez a la misma persona no suenan las dos.
