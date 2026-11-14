@@ -6,6 +6,9 @@ import voiceRoutes from './modules/voice/voice.routes';
 import webhookRoutes from './modules/voice/webhook.routes';
 import presenceRoutes from './modules/voice/presence.routes';
 import { VoicePresence } from './modules/voice/presence';
+import callsRoutes from './modules/calls/calls.routes';
+import { CallService } from './modules/calls/calls.service';
+import { ChatClient, ChatClientOptions } from './modules/calls/chat';
 
 const READYZ_TIMEOUT_MS = 2000;
 
@@ -25,6 +28,8 @@ declare module 'fastify' {
     /** API de servidor de LiveKit (listar y sacar participantes). */
     roomService: RoomServiceClient;
     voicePresence: VoicePresence;
+    /** Llamadas privadas 1 a 1 (salas `call-<id>`). */
+    calls: CallService;
   }
 }
 
@@ -43,6 +48,8 @@ interface BuildAppOptions {
   livekit?: LiveKitConfig;
   /** Cada cuánto se pinguea el WebSocket de presencia (/ws/voice). */
   wsPingIntervalMs?: number;
+  /** Llamadas privadas: cliente de Chat (URL, timeouts, reintentos) y cuánto suena. */
+  calls?: { chat?: ChatClientOptions; ringTimeoutMs?: number };
 }
 
 // Sin defaults: si faltan las credenciales, el servicio no arranca en vez de firmar tokens con un secret conocido
@@ -78,8 +85,18 @@ function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.decorate('redis', redisClient);
   app.decorate('livekit', livekitConfig);
-  app.decorate('roomService', new RoomServiceClient(livekitConfig.url, livekitConfig.apiKey, livekitConfig.apiSecret));
+  const roomService = new RoomServiceClient(livekitConfig.url, livekitConfig.apiKey, livekitConfig.apiSecret);
+  app.decorate('roomService', roomService);
   app.decorate('voicePresence', new VoicePresence(app));
+  const calls = new CallService({
+    redis: redisClient,
+    roomService,
+    livekit: livekitConfig,
+    chat: new ChatClient(options.calls?.chat),
+    log: app.log,
+    ringTimeoutMs: options.calls?.ringTimeoutMs,
+  });
+  app.decorate('calls', calls);
 
   app.get('/livez', async () => {
     return { status: 'alive' };
@@ -88,6 +105,7 @@ function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.register(fastifyWebsocket);
   app.register(voiceRoutes);
   app.register(webhookRoutes);
+  app.register(callsRoutes);
   app.register(presenceRoutes, { pingIntervalMs: options.wsPingIntervalMs });
 
   // Dependencias críticas: sin Redis no hay sesiones de voz y sin LiveKit no hay audio
@@ -135,6 +153,7 @@ function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   });
 
   app.addHook('onClose', async () => {
+    calls.close();
     if (redisClient.isOpen) {
       await redisClient.quit();
     }

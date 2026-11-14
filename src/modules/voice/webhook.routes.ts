@@ -2,11 +2,13 @@ import { FastifyInstance } from 'fastify';
 import { WebhookReceiver } from 'livekit-server-sdk';
 import { clearVoiceSession, keys } from './sessions';
 import { removeParticipant } from './moderation';
+import { CALL_ROOM_PREFIX, callIdFromRoom } from '../calls/state';
 
 /**
  * Webhooks de LiveKit: mantienen la sesión de Redis alineada con lo que pasa en la sala, incluso
  * cuando el cliente se va sin llamar a /leave (cierra la pestaña, se queda sin red).
  * La sala de LiveKit se llama igual que el channelId y la identidad del participante es el userId.
+ * Las salas `call-<id>` son de llamadas privadas: las maneja `app.calls` y no tocan las claves de canales.
  *
  * No pasa por el Gateway: LiveKit llama directo al servicio dentro de la red de Docker y el
  * request se autentica con la firma (JWT con el sha256 del body) usando las API keys compartidas.
@@ -58,6 +60,11 @@ export default async function webhookRoutes(app: FastifyInstance) {
 
       const channelId = event.room?.name;
       const userId = event.participant?.identity;
+
+      if (channelId?.startsWith(CALL_ROOM_PREFIX)) {
+        await app.calls.handleRoomEvent(event.event, channelId, callIdFromRoom(channelId), userId);
+        return reply.code(200).send({ received: true });
+      }
 
       switch (event.event) {
         case 'participant_joined':

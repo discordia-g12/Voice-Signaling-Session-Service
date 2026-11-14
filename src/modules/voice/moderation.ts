@@ -31,7 +31,7 @@ export function accountIdentities(event: MemberEvent): string[] {
 }
 
 /** LiveKit responde "not found" si el usuario ya no está en la sala (o la sala ya no existe). */
-function isNotFound(error: unknown): boolean {
+export function isNotFound(error: unknown): boolean {
   const { status, code, message } = (error ?? {}) as { status?: number; code?: string; message?: string };
   return status === 404 || code === 'not_found' || /not found|does not exist/i.test(String(message ?? ''));
 }
@@ -202,7 +202,10 @@ export function handleMemberEvent(app: FastifyInstance) {
       return;
     }
     if (routingKey === 'user.suspended') {
-      await removeSuspendedAccount(app, accountIdentities(event));
+      const identities = accountIdentities(event);
+      await removeSuspendedAccount(app, identities);
+      // Y la llamada privada en curso de cualquiera de sus identidades (sonando o activa)
+      await app.calls.endForIdentities(identities);
       return;
     }
     if (routingKey === 'user.reactivated') {
