@@ -13,7 +13,7 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKER_USERNAME }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Los PRs de Dependabot no reciben secrets: sin este guard el job falla antes de los tests.
       - name: Log in to Docker Hub
@@ -50,7 +50,7 @@ jobs:
       PUSH: ${{ github.event_name == 'push' }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKER_USERNAME }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-buildx-action@v3
 
