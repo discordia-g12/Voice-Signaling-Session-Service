@@ -222,10 +222,11 @@ tests/
 
 `.github/workflows/ci.yml`, en cada push y PR a `main` y `develop`:
 
-1. `test-and-build`: lint, typecheck y tests, dentro del contenedor de `docker-compose.yaml`
-   (`docker compose run voice_signaling_svc`). `npm audit` se muestra pero no bloquea: hoy reporta Fastify 4,
-   que se corrige pasando a Fastify 5.
-2. `docker`: construye la imagen; en push la publica como `ghcr.io/discordia-g12/voice-signaling-service:<sha>`.
+1. `test`: lint, typecheck y tests con Node en el runner y Redis como service container (los tests mockean
+   LiveKit y los otros servicios). `npm audit` se muestra pero no bloquea: hoy reporta Fastify 4, que se
+   corrige pasando a Fastify 5.
+2. `docker`: solo en push (y en los PRs de Dependabot de la imagen base): construye la imagen y la publica
+   como `ghcr.io/discordia-g12/voice-signaling-service:<sha>`.
 3. `deploy`: en push a `main`, la despliega en el nodo **realtime** con el workflow del orquestador. Si no
    queda sana, vuelve sola a la versión anterior.
 
