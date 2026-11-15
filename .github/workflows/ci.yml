@@ -80,7 +80,7 @@ jobs:
             type=ref,event=branch
 
       - name: Build (and push on main/develop)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: ${{ env.PUSH == 'true' }}
