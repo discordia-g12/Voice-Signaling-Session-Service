@@ -9,12 +9,17 @@ on:
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKER_USERNAME }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
+      # Los PRs de Dependabot no reciben secrets: sin este guard el job falla antes de los tests.
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        if: env.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
@@ -37,6 +42,7 @@ jobs:
     # PR: construye la imagen para validar el Dockerfile. Push a main/develop: además la publica en GHCR
     # con el SHA del commit (lo que se despliega) y el nombre de la rama. Sin "latest".
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: test-and-build
     permissions:
       contents: read
@@ -46,21 +52,21 @@ jobs:
       PUSH: ${{ github.event_name == 'push' }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKER_USERNAME }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       # evita el límite de descargas anónimas de Docker Hub (imágenes base)
       - name: Log in to Docker Hub
         if: env.DOCKERHUB_USERNAME != ''
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Log in to GHCR
         if: env.PUSH == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -68,7 +74,7 @@ jobs:
 
       - name: Image tags
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE }}
           tags: |
@@ -76,7 +82,7 @@ jobs:
             type=ref,event=branch
 
       - name: Build (and push on main/develop)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: ${{ env.PUSH == 'true' }}

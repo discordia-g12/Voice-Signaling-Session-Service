@@ -19,6 +19,18 @@ export const keys = {
    * /join (que chequea can-connect).
    */
   blocked: (serverId: string, userId: string) => `voice:blocked:${serverId}:${userId}`,
+  /**
+   * La cuenta fue suspendida por la plataforma (user.suspended de Auth-User): no puede estar en ninguna
+   * llamada. Cubre el token de LiveKit que ya tenga, que no pasa por el validador de Kong. Se borra con
+   * user.reactivated.
+   */
+  suspended: (userId: string) => `voice:suspended:${userId}`,
+  /**
+   * El servidor fue suspendido por la plataforma (server.suspended de Server-Roles): nadie puede estar en sus
+   * llamadas. Server-Roles ya niega /join (can-connect); esto cubre los tokens de LiveKit emitidos antes. Se
+   * borra con server.unsuspended.
+   */
+  serverSuspended: (serverId: string) => `voice:server-suspended:${serverId}`,
 };
 
 /**

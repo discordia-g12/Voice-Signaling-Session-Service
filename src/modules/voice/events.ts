@@ -1,5 +1,5 @@
 import type { Channel, ChannelModel, ConsumeMessage } from 'amqplib';
-import { MemberEvent, REMOVAL_EVENTS } from './moderation';
+import { ACCOUNT_EVENTS, MemberEvent, REMOVAL_EVENTS, SERVER_EVENTS } from './moderation';
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30_000;
@@ -19,6 +19,8 @@ export type MemberEventHandler = (routingKey: string, event: MemberEvent) => Pro
 export interface VoiceEventConsumerOptions {
   url: string;
   exchange?: string;
+  /** Exchange de Auth-User: user.suspended y user.reactivated. */
+  userExchange?: string;
   queue?: string;
   logger?: ConsumerLogger;
   /** Para tests: reemplaza amqplib.connect. */
@@ -28,7 +30,8 @@ export interface VoiceEventConsumerOptions {
 }
 
 /**
- * Consume los eventos member.banned / kicked / left de Server-Roles (exchange `server.events`).
+ * Consume los eventos member.banned / kicked / left de Server-Roles (exchange `server.events`) y
+ * user.suspended / user.reactivated de Auth-User (exchange `user.events`), en la misma cola.
  *
  * Igual que el consumidor del chat: no bloquea el arranque (RabbitMQ está en otro nodo), reintenta
  * para siempre con backoff exponencial y vuelve a conectar si la conexión se cae. La cola es propia
@@ -51,6 +54,7 @@ export class VoiceEventConsumer {
     this.opts = {
       url: options.url,
       exchange: options.exchange || 'server.events',
+      userExchange: options.userExchange || 'user.events',
       queue: options.queue || 'voice_signaling_events',
       logger: options.logger || console,
       connect: options.connect,
@@ -108,10 +112,15 @@ export class VoiceEventConsumer {
 
     try {
       const channel = await conn.createChannel();
+      // Mismas opciones con las que lo declara Auth-User (topic, durable): si no coinciden, RabbitMQ cierra el canal
+      await channel.assertExchange(opts.userExchange, 'topic', { durable: true });
       await channel.assertExchange(opts.exchange, 'topic', { durable: true });
       const q = await channel.assertQueue(opts.queue, { durable: true });
-      for (const routingKey of REMOVAL_EVENTS) {
+      for (const routingKey of [...REMOVAL_EVENTS, ...SERVER_EVENTS]) {
         await channel.bindQueue(q.queue, opts.exchange, routingKey);
+      }
+      for (const routingKey of ACCOUNT_EVENTS) {
+        await channel.bindQueue(q.queue, opts.userExchange, routingKey);
       }
 
       await channel.consume(q.queue, (msg: ConsumeMessage | null) => {

@@ -2,11 +2,13 @@ import { FastifyInstance } from 'fastify';
 import { WebhookReceiver } from 'livekit-server-sdk';
 import { clearVoiceSession, keys } from './sessions';
 import { removeParticipant } from './moderation';
+import { CALL_ROOM_PREFIX, callIdFromRoom } from '../calls/state';
 
 /**
  * Webhooks de LiveKit: mantienen la sesión de Redis alineada con lo que pasa en la sala, incluso
  * cuando el cliente se va sin llamar a /leave (cierra la pestaña, se queda sin red).
  * La sala de LiveKit se llama igual que el channelId y la identidad del participante es el userId.
+ * Las salas `call-<id>` son de llamadas privadas: las maneja `app.calls` y no tocan las claves de canales.
  *
  * No pasa por el Gateway: LiveKit llama directo al servicio dentro de la red de Docker y el
  * request se autentica con la firma (JWT con el sha256 del body) usando las API keys compartidas.
@@ -33,11 +35,13 @@ export default async function webhookRoutes(app: FastifyInstance) {
 
   const removeFromChannel = (channelId: string, userId: string) => clearVoiceSession(app.redis, channelId, userId);
 
-  // Baneado, expulsado o fuera del servidor (ver moderation.ts): si entra con un token emitido antes, se lo saca
+  // Baneado, expulsado o fuera del servidor, cuenta suspendida o servidor suspendido por la plataforma (ver
+  // moderation.ts): si entra con un token emitido antes, se lo saca
   async function isBlocked(channelId: string, userId: string): Promise<boolean> {
+    if ((await app.redis.exists(keys.suspended(userId))) > 0) return true;
     const serverId = await app.redis.get(keys.channelServer(channelId));
     if (!serverId) return false;
-    return (await app.redis.exists(keys.blocked(serverId, userId))) > 0;
+    return (await app.redis.exists([keys.blocked(serverId, userId), keys.serverSuspended(serverId)])) > 0;
   }
 
   app.post('/webhooks/livekit', async (request, reply) => {
@@ -56,6 +60,11 @@ export default async function webhookRoutes(app: FastifyInstance) {
 
       const channelId = event.room?.name;
       const userId = event.participant?.identity;
+
+      if (channelId?.startsWith(CALL_ROOM_PREFIX)) {
+        await app.calls.handleRoomEvent(event.event, channelId, callIdFromRoom(channelId), userId);
+        return reply.code(200).send({ received: true });
+      }
 
       switch (event.event) {
         case 'participant_joined':

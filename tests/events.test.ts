@@ -79,13 +79,22 @@ describe('VoiceEventConsumer', () => {
     return connections;
   };
 
-  it('usa su propia cola y se suscribe solo a ban, kick y salida', async () => {
+  it('usa su propia cola y se suscribe a ban, kick y salida, y a suspensión y reactivación de cuentas', async () => {
     const connections = startWith(async () => {});
     await waitFor(() => consumer!.isConnected);
 
     assert.strictEqual(connections[0].exchange, 'server.events');
     assert.strictEqual(connections[0].queue, 'voice_signaling_events');
-    assert.deepStrictEqual(connections[0].bindings.sort(), ['member.banned', 'member.kicked', 'member.left']);
+    assert.deepStrictEqual(connections[0].bindings.sort(), [
+      'member.banned',
+      'member.kicked',
+      'member.left',
+      'server.deleted',
+      'server.suspended',
+      'server.unsuspended',
+      'user.reactivated',
+      'user.suspended',
+    ]);
   });
 
   it('pasa el evento al handler y lo confirma cuando termina', async () => {
