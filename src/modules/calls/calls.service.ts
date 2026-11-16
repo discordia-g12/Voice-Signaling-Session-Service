@@ -32,13 +32,17 @@ export class CallError extends Error {
 }
 
 /**
- * Micrófono y cámara (historia #54): en una llamada privada no hay roles que lo limiten. Compartir pantalla
- * todavía no existe en ningún lado.
+ * Micrófono, cámara y pantalla: en una llamada privada 1 a 1 no hay roles que lo limiten.
  */
-export const CALL_PERMISSIONS: PublishPermissions = { canSpeak: true, canVideo: true, canScreenShare: false };
+export const CALL_PERMISSIONS: PublishPermissions = { canSpeak: true, canVideo: true, canScreenShare: true };
 
 /** Lo que el token deja publicar: lo mismo que dice CALL_PERMISSIONS al cliente. */
-const CALL_PUBLISH_SOURCES = [TrackSource.MICROPHONE, TrackSource.CAMERA];
+const CALL_PUBLISH_SOURCES = [
+  TrackSource.MICROPHONE,
+  TrackSource.CAMERA,
+  TrackSource.SCREEN_SHARE,
+  TrackSource.SCREEN_SHARE_AUDIO,
+];
 
 export interface CallJoin {
   call: Call;

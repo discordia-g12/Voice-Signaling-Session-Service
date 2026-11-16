@@ -215,7 +215,7 @@ test('Llamadas privadas', async (t) => {
     assert.strictEqual(body.call.callerIdentity, undefined, 'el cliente no ve las identidades crudas');
     assert.strictEqual(Date.parse(body.call.expiresAt) - Date.parse(body.call.createdAt), 30_000);
     assert.strictEqual(body.url, livekit.publicUrl);
-    assert.deepStrictEqual(body.permissions, { canSpeak: true, canVideo: true, canScreenShare: false });
+    assert.deepStrictEqual(body.permissions, { canSpeak: true, canVideo: true, canScreenShare: true });
 
     const room = `call-${body.call.id}`;
     assert.deepStrictEqual(rooms.created, [{ name: room, maxParticipants: 2, emptyTimeout: 60 }]);
@@ -223,7 +223,7 @@ test('Llamadas privadas', async (t) => {
     const token = decodeToken(body.token);
     assert.strictEqual(token.sub, p.a);
     assert.strictEqual(token.video.room, room);
-    assert.deepStrictEqual(token.video.canPublishSources, ['microphone', 'camera']);
+    assert.deepStrictEqual(token.video.canPublishSources, ['microphone', 'camera', 'screen_share', 'screen_share_audio']);
     assert.strictEqual(token.video.canSubscribe, true);
     assert.ok(token.exp - Math.floor(Date.now() / 1000) <= 600);
 
@@ -386,7 +386,7 @@ test('Llamadas privadas', async (t) => {
     const token = decodeToken(body.token);
     assert.strictEqual(token.sub, call.b);
     assert.strictEqual(token.video.room, `call-${call.callId}`);
-    assert.deepStrictEqual(token.video.canPublishSources, ['microphone', 'camera']);
+    assert.deepStrictEqual(token.video.canPublishSources, ['microphone', 'camera', 'screen_share', 'screen_share_audio']);
     assert.deepStrictEqual(chat.events, [{ userIds: [call.a, call.b], event: { type: 'CALL_ACCEPTED', call: body.call } }]);
     assert.ok((await app.redis.ttl(callKeys.user(call.a))) > 45, 'activa: el ocupado dura lo que la llamada');
     assert.strictEqual((await stateOf(call.callId)).calleeIdentity, call.b);
