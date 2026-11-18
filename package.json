@@ -15,7 +15,7 @@
   "dependencies": {
     "@fastify/websocket": "^10.0.1",
     "amqplib": "^0.10.4",
-    "fastify": "^4.29.1",
+    "fastify": "^5.12.8",
     "livekit-server-sdk": "^2.19.3",
     "redis": "^6.3.1"
   },
