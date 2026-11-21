@@ -6,44 +6,79 @@ on:
   pull_request:
     branches: [main, develop]
 
+# Un push nuevo a un PR cancela el run anterior del mismo PR. Cada push a main/develop tiene su propio grupo
+# (el run_id): nunca se cancela ni se descarta uno que publica una imagen o despliega.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
-  test-and-build:
+  # Igual que Chat y Notification: Node directo en el runner y Redis como service container. Antes corría con
+  # docker compose run, que construía la imagen y levantaba LiveKit solo para los tests (y el job docker la
+  # volvía a construir). Los tests mockean fetch, así que LiveKit y los otros servicios no hacen falta.
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    # Las mismas variables que docker-compose.yaml, apuntando a localhost
     env:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      NODE_ENV: development
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: secret
+      LIVEKIT_URL: ws://localhost:7880
+      LIVEKIT_PUBLIC_URL: ws://localhost:7880
+      CORE_SERVICE_URL: http://localhost:8080
+      CHAT_SERVICE_URL: http://localhost:3000
 
     steps:
       - uses: actions/checkout@v7
 
-      # Los PRs de Dependabot no reciben secrets: sin este guard el job falla antes de los tests.
-      - name: Log in to Docker Hub
-        if: env.DOCKERHUB_USERNAME != ''
-        uses: docker/login-action@v4
+      # La misma versión mayor que el Dockerfile
+      - uses: actions/setup-node@v7
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          node-version: "26"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
 
       # Igual que Chat y Notification: se ve en el log pero no bloquea. Hoy reporta Fastify 4, que solo se
-      # corrige pasando a Fastify 5 (cambio mayor, en un PR aparte). Alcanza con el package-lock.json.
+      # corrige pasando a Fastify 5 (cambio mayor, en un PR aparte).
       - name: Dependency audit
         continue-on-error: true
         run: npm audit --audit-level=high
 
-      - name: Run Lint, Typecheck and Tests inside Docker
-        run: |
-          docker compose run --rm voice_signaling_svc sh -c "\
-            npm run lint && \
-            npm run typecheck && \
-            npm run test \
-          "
+      - name: Run tests
+        run: npm test
 
   docker:
-    # PR: construye la imagen para validar el Dockerfile. Push a main/develop: además la publica en GHCR
-    # con el SHA del commit (lo que se despliega) y el nombre de la rama. Sin "latest".
+    # Construye la imagen y la publica en GHCR con el SHA del commit (lo que se despliega) y el nombre de la
+    # rama. Sin "latest". Solo en push a main/develop: en los PRs no corre, para no gastar un build por cada
+    # push (el Dockerfile se valida al mergear a develop). La excepción son los PRs de Dependabot que cambian
+    # la imagen base: se construyen (sin publicar) antes de mergear.
+    if: github.event_name == 'push' || startsWith(github.head_ref, 'dependabot/docker/')
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: test-and-build
+    needs: test
     permissions:
       contents: read
       packages: write

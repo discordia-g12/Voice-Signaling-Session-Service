@@ -132,7 +132,7 @@ En producción está detrás de Kong, que valida el token y agrega `x-user-id`.
 | `POST` | `/api/v1/voice/rooms/leave` | Saca al usuario de su llamada actual y avisa a los que miran el canal |
 | `GET` | `/ws/voice` | WebSocket de presencia: el cliente manda `{"type":"subscribe","channelIds":[...]}` y recibe `{"type":"presence","channelId","userIds"}` al suscribirse y en cada cambio. Solo de los canales que puede ver |
 | `POST` | `/webhooks/livekit` | Webhooks de LiveKit (firmados con las claves): `participant_joined`, `participant_left`, `participant_connection_aborted` y `room_finished`. `401` si la firma no es válida |
-| `POST` | `/api/v1/voice/calls` | Inicia una llamada privada: body `{conversationId}`. `201 {call, token, url, permissions}` (quien llama entra a la sala `call-<id>`; el token deja publicar micrófono y cámara). `400`, `403 DM_NOT_DELIVERABLE` / `DM_PENDING`, `404 CONVERSATION_NOT_FOUND`, `409 CALL_BUSY`, `503 CHAT_UNAVAILABLE` / `LIVEKIT_UNAVAILABLE` |
+| `POST` | `/api/v1/voice/calls` | Inicia una llamada privada: body `{conversationId}`. `201 {call, token, url, permissions}` (quien llama entra a la sala `call-<id>`; el token deja publicar micrófono, cámara y pantalla). `400`, `403 DM_NOT_DELIVERABLE` / `DM_PENDING`, `404 CONVERSATION_NOT_FOUND`, `409 CALL_BUSY`, `503 CHAT_UNAVAILABLE` / `LIVEKIT_UNAVAILABLE` |
 | `POST` | `/api/v1/voice/calls/:callId/accept` | Solo quien recibe, solo sonando. `200 {call, token, url, permissions}`. Vuelve a pasar por Chat: `403 DM_NOT_DELIVERABLE` termina la llamada (`unavailable`). `403 CALL_NOT_CALLEE`, `404 CALL_NOT_FOUND`, `409 CALL_NOT_RINGING`, `503` |
 | `POST` | `/api/v1/voice/calls/:callId/decline` | Solo quien recibe, solo sonando. `204`; `409 CALL_NOT_RINGING` |
 | `POST` | `/api/v1/voice/calls/:callId/end` | Cualquiera de los dos. `204`, idempotente. Sonando: `canceled` (quien llama) o `declined` (quien recibe); activa: `ended`. Funciona con Chat caído |
@@ -222,10 +222,11 @@ tests/
 
 `.github/workflows/ci.yml`, en cada push y PR a `main` y `develop`:
 
-1. `test-and-build`: lint, typecheck y tests, dentro del contenedor de `docker-compose.yaml`
-   (`docker compose run voice_signaling_svc`). `npm audit` se muestra pero no bloquea: hoy reporta Fastify 4,
-   que se corrige pasando a Fastify 5.
-2. `docker`: construye la imagen; en push la publica como `ghcr.io/discordia-g12/voice-signaling-service:<sha>`.
+1. `test`: lint, typecheck y tests con Node en el runner y Redis como service container (los tests mockean
+   LiveKit y los otros servicios). `npm audit` se muestra pero no bloquea: hoy reporta Fastify 4, que se
+   corrige pasando a Fastify 5.
+2. `docker`: solo en push (y en los PRs de Dependabot de la imagen base): construye la imagen y la publica
+   como `ghcr.io/discordia-g12/voice-signaling-service:<sha>`.
 3. `deploy`: en push a `main`, la despliega en el nodo **realtime** con el workflow del orquestador. Si no
    queda sana, vuelve sola a la versión anterior.
 
