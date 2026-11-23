@@ -118,6 +118,7 @@ los dos Redis, o cambiá el puerto de uno.
 | `REDIS_HOST` / `REDIS_PORT` | `127.0.0.1` / `6379` | Sesiones y presencia |
 | `CORE_SERVICE_URL` | `http://server-roles-service:8080` | Server-Roles-Core, para `can-connect` y `access` |
 | `CHAT_SERVICE_URL` | `http://chat-engine-service:3000` | Chat-Engine, para las llamadas privadas: `call-access`, id canónico e inbox |
+| `INTERNAL_API_TOKEN` | — | Secreto compartido con Chat: va en `X-Internal-Token` al publicar en el inbox. Tiene que ser el mismo que el de Chat; si Chat lo tiene y Voice no, avisar una llamada falla |
 | `RABBITMQ_URL` | — | Broker. Sin él no se consumen eventos (aviso en el log) |
 | `RABBITMQ_EXCHANGE` / `RABBITMQ_QUEUE` | `server.events` / `voice_signaling_events` | De dónde consume |
 | `RABBITMQ_USER_EXCHANGE` | `user.events` | Exchange de Auth-User, del que consume `user.suspended` y `user.reactivated` |

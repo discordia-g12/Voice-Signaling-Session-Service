@@ -16,6 +16,8 @@ export interface ChatClientOptions {
   attempts?: number;
   /** Espera antes del primer reintento; se duplica en cada uno. */
   baseDelayMs?: number;
+  /** Secreto de `/internal/inbox/events` (`X-Internal-Token`). Default: `INTERNAL_API_TOKEN`. */
+  internalToken?: string;
 }
 
 /** Chat no respondió (timeout, red, 5xx) o respondió algo fuera de contrato. */
@@ -73,12 +75,14 @@ export class ChatClient {
   private readonly timeoutMs: number;
   private readonly attempts: number;
   private readonly baseDelayMs: number;
+  private readonly internalToken: string;
 
   constructor(options: ChatClientOptions = {}) {
     this.baseUrl = (options.baseUrl || process.env.CHAT_SERVICE_URL || 'http://chat-engine-service:3000').replace(/\/$/, '');
     this.timeoutMs = options.timeoutMs ?? 2000;
     this.attempts = options.attempts ?? 3;
     this.baseDelayMs = options.baseDelayMs ?? 200;
+    this.internalToken = options.internalToken ?? process.env.INTERNAL_API_TOKEN ?? '';
   }
 
   /**
@@ -144,7 +148,11 @@ export class ChatClient {
     try {
       response = await fetch(`${this.baseUrl}/internal/inbox/events`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        // Sin token configurado no se manda: Chat solo lo exige si tiene el suyo (V9)
+        headers: {
+          'content-type': 'application/json',
+          ...(this.internalToken ? { 'x-internal-token': this.internalToken } : {}),
+        },
         body: JSON.stringify({ userIds, event }),
         signal: AbortSignal.timeout(this.timeoutMs),
       });
