@@ -115,6 +115,20 @@ test('Cliente de Chat (llamadas privadas)', async (t) => {
     assert.strictEqual((requests[0].init.headers as Record<string, string>)['x-user-id'], undefined);
   });
 
+  await t.test('inbox: manda X-Internal-Token si hay uno configurado, y no si no', async () => {
+    const headers: Record<string, string>[] = [];
+    mock.method(global, 'fetch', async (_url: string, init: RequestInit) => {
+      headers.push(init.headers as Record<string, string>);
+      return json(202);
+    });
+
+    await new ChatClient({ ...fastRetry, internalToken: 'secreto' }).publishInboxEvent(['a'], { type: 'CALL_ENDED' });
+    await new ChatClient({ ...fastRetry, internalToken: '' }).publishInboxEvent(['a'], { type: 'CALL_ENDED' });
+
+    assert.strictEqual(headers[0]['x-internal-token'], 'secreto');
+    assert.strictEqual('x-internal-token' in headers[1], false);
+  });
+
   await t.test('inbox: error de red → no disponible', async () => {
     mock.method(global, 'fetch', async () => {
       throw new TypeError('fetch failed');
